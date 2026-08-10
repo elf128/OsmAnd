@@ -47,8 +47,10 @@ import net.osmand.plus.utils.ColorUtilities;
 import net.osmand.plus.utils.OsmAndFormatter;
 import net.osmand.plus.utils.UiUtilities;
 import net.osmand.plus.views.layers.base.OsmandMapLayer.DrawSettings;
+import net.osmand.plus.views.mapwidgets.WidgetsContextMenu;
 import net.osmand.plus.views.mapwidgets.WidgetsPanel;
 import net.osmand.plus.views.mapwidgets.appearance.ResolvedPanelAppearance;
+import net.osmand.plus.settings.enums.ScreenLayoutMode;
 import net.osmand.shared.gpx.GpxFile;
 import net.osmand.shared.gpx.GpxTrackAnalysis;
 import net.osmand.shared.gpx.primitives.TrkSegment;
@@ -322,6 +324,8 @@ public class ElevationProfileWidget extends MapWidget {
 
 			@Override
 			public void onChartLongPressed(MotionEvent me) {
+				WidgetsContextMenu.showMenu(chart, mapActivity, widgetType, customId, null,
+						ScreenLayoutMode.getDefault(chart.getContext()), panel, nightMode, true);
 			}
 
 			@Override
@@ -334,6 +338,7 @@ public class ElevationProfileWidget extends MapWidget {
 				Highlight touchHighlight = chart.getHighlightByTouchPoint(me.getX(), me.getY());
 				if (touchHighlight != null) {
 					touchHighlight = createHighlight(touchHighlight.getX(), false);
+					updateSegmentDiffs(touchHighlight.getX());
 				}
 
 				if (locationHighlight != null && touchHighlight != null) {
@@ -481,6 +486,47 @@ public class ElevationProfileWidget extends MapWidget {
 
 	private Highlight createHighlight(float x, boolean location) {
 		return new GPXHighlight(x, 0, location);
+	}
+
+	private void updateSegmentDiffs(float tappedChartX) {
+		List<WptPt> points = allPoints;
+		if (points == null || points.isEmpty() || chart.getMarker() == null) {
+			return;
+		}
+		float currentChartX = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
+		double fromDist = (currentChartX > 0 ? currentChartX : 0) * toMetersMultiplier;
+		double toDist = tappedChartX * toMetersMultiplier;
+		int fromIndex = gpx.getPointIndexByDistance(points, fromDist);
+		int toIndex = gpx.getPointIndexByDistance(points, toDist);
+		if (fromIndex > toIndex) {
+			int tmp = fromIndex;
+			fromIndex = toIndex;
+			toIndex = tmp;
+		}
+		final int startIdx = fromIndex;
+		final int count = toIndex - fromIndex + 1;
+		if (count < 2) {
+			return;
+		}
+		final List<WptPt> pts = points;
+		ElevationDiffsCalculator calc = new ElevationDiffsCalculator() {
+			@Override
+			public double getPointDistance(int index) {
+				return pts.get(startIdx + index).getDistance();
+			}
+			@Override
+			public double getPointElevation(int index) {
+				return pts.get(startIdx + index).getEle();
+			}
+			@Override
+			public int getPointsCount() {
+				return count;
+			}
+		};
+		calc.calculateElevationDiffs();
+		if (chart.getMarker() instanceof GpxMarkerView) {
+			((GpxMarkerView) chart.getMarker()).setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
+		}
 	}
 
 	private boolean updateWidgets() {

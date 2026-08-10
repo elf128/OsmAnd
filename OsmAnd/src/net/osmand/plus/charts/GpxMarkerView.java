@@ -33,11 +33,17 @@ public class GpxMarkerView extends MarkerView {
 	private final View firstYAxisContainer;
 	private final View secondYAxisContainer;
 	private final View xAxisContainer;
+	private final View segmentDiffsContainer;
+	private final TextView segmentGainText;
+	private final TextView segmentDropText;
 
 	private final boolean hasIcon;
 	private final long startTimeMillis;
 	private final boolean useHours;
 	private final boolean showXAxisValue;
+
+	private double segmentGainM = Double.NaN;
+	private double segmentDropM = Double.NaN;
 
 	public GpxMarkerView(@NonNull Context context, @Nullable Drawable icon) {
 		this(context, icon, 0, false, false);
@@ -60,6 +66,9 @@ public class GpxMarkerView extends MarkerView {
 		firstYAxisContainer = findViewById(R.id.first_container);
 		secondYAxisContainer = findViewById(R.id.second_container);
 		xAxisContainer = findViewById(R.id.x_axis_container);
+		segmentDiffsContainer = findViewById(R.id.segment_diffs_container);
+		segmentGainText = findViewById(R.id.segment_gain_text);
+		segmentDropText = findViewById(R.id.segment_drop_text);
 
 		hasIcon = icon != null;
 		((ImageView) findViewById(R.id.icon)).setImageDrawable(icon);
@@ -67,13 +76,25 @@ public class GpxMarkerView extends MarkerView {
 		AndroidUiHelper.updateVisibility(findViewById(R.id.icon_container), hasIcon);
 	}
 
+	public void setSegmentDiffs(double gainM, double dropM) {
+		segmentGainM = gainM;
+		segmentDropM = dropM;
+	}
+
 	@Override
 	public void refreshContent(@NonNull Entry entry, @NonNull Highlight highlight) {
 		ChartData<?> chartData = getChartView().getData();
+		boolean isLocationHighlight = highlight instanceof GPXHighlight && ((GPXHighlight) highlight).shouldShowLocationIcon();
 		if (hasIcon && highlight instanceof GPXHighlight) {
-			boolean showIcon = ((GPXHighlight) highlight).shouldShowLocationIcon();
-			AndroidUiHelper.updateVisibility(findViewById(R.id.icon_divider), showIcon);
-			AndroidUiHelper.updateVisibility(findViewById(R.id.icon_container), showIcon);
+			AndroidUiHelper.updateVisibility(findViewById(R.id.icon_divider), isLocationHighlight);
+			AndroidUiHelper.updateVisibility(findViewById(R.id.icon_container), isLocationHighlight);
+		}
+		boolean showDiffs = !isLocationHighlight && !Double.isNaN(segmentGainM);
+		AndroidUiHelper.updateVisibility(segmentDiffsContainer, showDiffs);
+		if (showDiffs) {
+			OsmandApplication app = getMyApplication();
+			segmentGainText.setText(OsmAndFormatter.getFormattedAlt(segmentGainM, app));
+			segmentDropText.setText(OsmAndFormatter.getFormattedAlt(segmentDropM, app));
 		}
 		int dataSetCount = chartData.getDataSetCount();
 		OrderedLineDataSet lastDataSet = dataSetCount > 0 ? (OrderedLineDataSet) chartData.getDataSetByIndex(dataSetCount - 1) : null;
