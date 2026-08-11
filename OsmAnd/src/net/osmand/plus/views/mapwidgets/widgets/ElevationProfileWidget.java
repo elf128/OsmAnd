@@ -221,6 +221,10 @@ public class ElevationProfileWidget extends MapWidget {
 
 	public void setCalculationMode(@NonNull ApplicationMode appMode, @NonNull CalculationMode mode) {
 		calculationModePreference.setModeValue(appMode, mode.name());
+		// Invalidate stats-line cache so updateWidgets() re-renders with the new prefix even if
+		// the computed point indices happen to be identical (e.g. GPS at position 0).
+		firstVisiblePointIndex = -1;
+		lastVisiblePointIndex = -1;
 		applyMarkerPrefs();
 	}
 
@@ -674,6 +678,7 @@ public class ElevationProfileWidget extends MapWidget {
 			mode = CalculationMode.FROM_LOCATION;
 		}
 
+		Boolean isAhead;
 		float fromChartX;
 		switch (mode) {
 			case FROM_LOCATION:
@@ -682,17 +687,28 @@ public class ElevationProfileWidget extends MapWidget {
 					marker.setSegmentDiffsUnavailable();
 					return;
 				}
+				isAhead = tappedChartX >= pos;
 				fromChartX = pos;
 				break;
 			case FROM_LEFT_EDGE:
+				isAhead = null;
 				fromChartX = chart.getLowestVisibleX();
 				break;
 			default: // FROM_START
+				isAhead = null;
 				fromChartX = 0f;
 		}
 
 		double fromDist = fromChartX * toMetersMultiplier;
 		double toDist = tappedChartX * toMetersMultiplier;
+
+		// For FROM_LOCATION and FROM_LEFT_EDGE, show relative distance; FROM_START uses entry.x.
+		if (mode == CalculationMode.FROM_LOCATION || mode == CalculationMode.FROM_LEFT_EDGE) {
+			marker.setSegmentDistance(Math.abs(toDist - fromDist));
+		} else {
+			marker.setSegmentDistance(Double.NaN);
+		}
+
 		int fromIndex = gpx.getPointIndexByDistance(points, fromDist);
 		int toIndex = gpx.getPointIndexByDistance(points, toDist);
 		if (fromIndex > toIndex) {
@@ -721,16 +737,39 @@ public class ElevationProfileWidget extends MapWidget {
 			}
 		};
 		calc.calculateElevationDiffs();
-		marker.setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
+		marker.setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown(), isAhead);
 	}
 
 	private boolean updateWidgets() {
 		double minVisibleX = chart.getLowestVisibleX();
 		double maxVisibleX = chart.getHighestVisibleX();
-		float highlightPosition = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
-		if (highlightPosition > minVisibleX && highlightPosition < maxVisibleX) {
-			minVisibleX = highlightPosition;
+
+		CalculationMode mode;
+		try {
+			mode = CalculationMode.valueOf(calculationModePreference.get());
+		} catch (IllegalArgumentException e) {
+			mode = CalculationMode.FROM_LOCATION;
 		}
+
+		String statsPrefix;
+		switch (mode) {
+			case FROM_LOCATION:
+				float gpsPos = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
+				if (gpsPos > 0) {
+					// Clamp GPS position to visible range so stats always cover [gps..rightEdge].
+					minVisibleX = Math.min(Math.max(gpsPos, minVisibleX), maxVisibleX);
+				}
+				statsPrefix = "+";
+				break;
+			case FROM_START:
+				minVisibleX = chart.getXChartMin();
+				statsPrefix = "";
+				break;
+			default: // FROM_LEFT_EDGE — visible left edge, no change to minVisibleX
+				statsPrefix = "|→";
+				break;
+		}
+
 		updateTrackChartPoints();
 		double fromDistance = minVisibleX * toMetersMultiplier;
 		double toDistance = maxVisibleX * toMetersMultiplier;
@@ -764,9 +803,9 @@ public class ElevationProfileWidget extends MapWidget {
 				}
 			};
 			elevationDiffsCalc.calculateElevationDiffs();
-			String uphill = OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationUp(), app);
+			String uphill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationUp(), app);
 			updateTextWidget(uphillView, uphill);
-			String downhill = OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationDown(), app);
+			String downhill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationDown(), app);
 			updateTextWidget(downhillView, downhill);
 		}
 		int maxGrade = calculateMaxGrade();

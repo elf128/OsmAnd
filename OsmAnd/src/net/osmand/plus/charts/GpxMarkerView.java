@@ -79,6 +79,11 @@ public class GpxMarkerView extends MarkerView {
 	private double segmentGainM = Double.NaN;
 	private double segmentDropM = Double.NaN;
 	private boolean gpsUnavailable = false;
+	// null=plain (FROM_START/FROM_LEFT_EDGE), true=ahead (+), false=behind (-)
+	@Nullable
+	private Boolean segmentIsAhead = null;
+	// Relative distance to display (NaN = use raw entry.x via dataSet.getDivX)
+	private double segmentDistanceM = Double.NaN;
 
 	// Segment diffs state — GPS location marker (always FROM_START)
 	private double locationGainM = Double.NaN;
@@ -160,16 +165,23 @@ public class GpxMarkerView extends MarkerView {
 
 	// --- Data setters ---
 
-	public void setSegmentDiffs(double gainM, double dropM) {
+	public void setSegmentDiffs(double gainM, double dropM, @Nullable Boolean isAhead) {
 		segmentGainM = gainM;
 		segmentDropM = dropM;
 		gpsUnavailable = false;
+		segmentIsAhead = isAhead;
+	}
+
+	public void setSegmentDistance(double distM) {
+		segmentDistanceM = distM;
 	}
 
 	public void setSegmentDiffsUnavailable() {
 		segmentGainM = 0;
 		segmentDropM = 0;
 		gpsUnavailable = true;
+		segmentIsAhead = null;
+		segmentDistanceM = Double.NaN;
 	}
 
 	public void setLocationDiffs(double gainM, double dropM) {
@@ -218,9 +230,13 @@ public class GpxMarkerView extends MarkerView {
 		updateYAxisContent(entry, firstDataSet, firstYAxisContainer);
 		updateYAxisContent(entry, secondDataSet, secondYAxisContainer);
 
-		// Update x-axis content for both inline and bottom containers
+		// Update x-axis content for both inline and bottom containers.
+		// For the tap marker with a mode-relative distance, override entry.x.
 		if (firstDataSet != null) {
-			updateXAxisContent(firstDataSet, entry);
+			double distOverride = (!isLocationHighlight && !Double.isNaN(segmentDistanceM))
+					? segmentDistanceM : Double.NaN;
+			Boolean distIsAhead = isLocationHighlight ? null : segmentIsAhead;
+			updateXAxisContent(firstDataSet, entry, distOverride, distIsAhead);
 		}
 
 		// Select the appropriate diffs pair for this highlight type
@@ -231,8 +247,12 @@ public class GpxMarkerView extends MarkerView {
 
 		if (hasDiffsData) {
 			OsmandApplication app = getMyApplication();
-			segmentGainText.setText(currentGpsUnavail ? "↑ -" : "↑ " + OsmAndFormatter.getFormattedAlt(currentGainM, app));
-			segmentDropText.setText(currentGpsUnavail ? "↓ -" : "↓ " + OsmAndFormatter.getFormattedAlt(currentDropM, app));
+			// Location marker is always FROM_START → plain. Tap marker uses sign from calc mode.
+			String sign = (!isLocationHighlight && segmentIsAhead != null)
+					? (segmentIsAhead ? "+" : "-")
+					: " ";
+			segmentGainText.setText(currentGpsUnavail ? "↑ -" : "↑" + sign + OsmAndFormatter.getFormattedAlt(currentGainM, app));
+			segmentDropText.setText(currentGpsUnavail ? "↓ -" : "↓" + sign + OsmAndFormatter.getFormattedAlt(currentDropM, app));
 		}
 
 		// Bottom distance container — visibility only; height is handled by onMeasure()
@@ -269,12 +289,16 @@ public class GpxMarkerView extends MarkerView {
 	}
 
 	@SuppressLint("SetTextI18n")
-	private void updateXAxisContent(@NonNull OrderedLineDataSet dataSet, @NonNull Entry entry) {
+	private void updateXAxisContent(@NonNull OrderedLineDataSet dataSet, @NonNull Entry entry,
+	                                double overrideDistM, @Nullable Boolean isAhead) {
 		GPXDataSetAxisType xAxisType = dataSet.getDataSetAxisType();
 		if (xAxisType == GPXDataSetAxisType.DISTANCE) {
-			float meters = entry.getX() * dataSet.getDivX();
+			float meters = !Double.isNaN(overrideDistM)
+					? (float) overrideDistM
+					: entry.getX() * dataSet.getDivX();
+			String sign = isAhead != null ? (isAhead ? "+" : "-") : "";
 			FormattedValue fv = OsmAndFormatter.getFormattedDistanceValue(meters, getMyApplication());
-			String valueStr = fv.value + " ";
+			String valueStr = sign + fv.value + " ";
 			((TextView) xAxisContainer.findViewById(R.id.x_axis_value)).setText(valueStr);
 			TextView inlineUnit = xAxisContainer.findViewById(R.id.x_axis_unit);
 			inlineUnit.setText(fv.unit);
