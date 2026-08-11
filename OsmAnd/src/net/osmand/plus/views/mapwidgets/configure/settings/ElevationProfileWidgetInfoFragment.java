@@ -27,6 +27,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 	private static final String KEY_SHOW_DISTANCE = "show_distance_in_marker";
 	private static final String KEY_TWO_LINE = "two_line_marker";
 	private static final String KEY_CALC_MODE = "calc_mode";
+	private static final String KEY_SMOOTHING = "elevation_smoothing";
 
 	private ElevationProfileWidget elevationWidget;
 
@@ -36,6 +37,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 	private boolean showDistance;
 	private boolean twoLine;
 	private String calcMode;
+	private boolean smoothing;
 
 	private ImageView slopeIcon;
 
@@ -56,6 +58,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 			showDistance = bundle.getBoolean(KEY_SHOW_DISTANCE, false);
 			twoLine = bundle.getBoolean(KEY_TWO_LINE, false);
 			calcMode = bundle.getString(KEY_CALC_MODE, CalculationMode.FROM_LOCATION.name());
+			smoothing = bundle.getBoolean(KEY_SMOOTHING, false);
 		} else if (widgetInfo != null) {
 			elevationWidget = (ElevationProfileWidget) widgetInfo.widget;
 			showSlope = elevationWidget.shouldShowSlope(appMode);
@@ -64,6 +67,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 			showDistance = elevationWidget.shouldShowDistanceInMarker(appMode);
 			twoLine = elevationWidget.shouldTwoLineMarker(appMode);
 			calcMode = elevationWidget.getCalculationMode(appMode).name();
+			smoothing = elevationWidget.isElevationSmoothing(appMode);
 		}
 	}
 
@@ -85,6 +89,9 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 		setupToggle(R.id.two_line_marker_row, R.id.two_line_marker_icon,
 				R.id.two_line_marker_switch, R.drawable.ic_action_altitude_range,
 				() -> twoLine, v -> twoLine = v);
+		setupToggle(R.id.elevation_smoothing_row, R.id.elevation_smoothing_icon,
+				R.id.elevation_smoothing_switch, R.drawable.ic_action_filter,
+				() -> smoothing, v -> smoothing = v);
 		setupCalcModeRadios();
 	}
 
@@ -208,6 +215,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 			} catch (IllegalArgumentException e) {
 				elevationWidget.setCalculationMode(appMode, CalculationMode.FROM_LOCATION);
 			}
+			elevationWidget.setElevationSmoothing(appMode, smoothing);
 		}
 	}
 
@@ -220,6 +228,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 		outState.putBoolean(KEY_SHOW_DISTANCE, showDistance);
 		outState.putBoolean(KEY_TWO_LINE, twoLine);
 		outState.putString(KEY_CALC_MODE, calcMode);
+		outState.putBoolean(KEY_SMOOTHING, smoothing);
 	}
 
 	private interface BooleanSupplier {

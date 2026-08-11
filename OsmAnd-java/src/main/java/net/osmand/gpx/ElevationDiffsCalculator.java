@@ -93,6 +93,30 @@ public abstract class ElevationDiffsCalculator {
 		}
 	}
 
+	/**
+	 * Cumulative running sum — no smoothing. Every elevation step counts.
+	 * Use for DEM-based route data where the RDP threshold would discard real terrain.
+	 */
+	public void calculateElevationDiffsRaw() {
+		diffElevationUp = 0;
+		diffElevationDown = 0;
+		int pointsCount = getPointsCount();
+		if (pointsCount < 2) {
+			return;
+		}
+		double prevEle = getPointElevation(0);
+		for (int i = 1; i < pointsCount; i++) {
+			double currEle = getPointElevation(i);
+			double diff = currEle - prevEle;
+			if (diff > 0) {
+				diffElevationUp += diff;
+			} else {
+				diffElevationDown -= diff;
+			}
+			prevEle = currEle;
+		}
+	}
+
 	public void calculateElevationDiffs() {
 		int pointsCount = getPointsCount();
 		if (pointsCount < 2) {

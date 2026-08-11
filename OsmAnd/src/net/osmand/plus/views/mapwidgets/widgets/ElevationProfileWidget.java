@@ -73,6 +73,7 @@ public class ElevationProfileWidget extends MapWidget {
 	private static final String SHOW_DISTANCE_MARKER_PREF_ID = "show_distance_in_marker";
 	private static final String TWO_LINE_MARKER_PREF_ID = "two_line_marker";
 	private static final String CALC_MODE_PREF_ID = "calc_mode_marker";
+	private static final String ELEVATION_SMOOTHING_PREF_ID = "elevation_smoothing_widget";
 
 	private final CommonPreference<Boolean> showSlopePreference;
 	private final CommonPreference<Boolean> showElevationInMarkerPreference;
@@ -80,6 +81,7 @@ public class ElevationProfileWidget extends MapWidget {
 	private final CommonPreference<Boolean> showDistanceInMarkerPreference;
 	private final CommonPreference<Boolean> twoLineMarkerPreference;
 	private final CommonPreference<String> calculationModePreference;
+	private final CommonPreference<Boolean> elevationSmoothingPreference;
 
 	private static final int MAX_DISTANCE_TO_SHOW_IM_METERS = 10_000;
 
@@ -126,6 +128,7 @@ public class ElevationProfileWidget extends MapWidget {
 		this.showDistanceInMarkerPreference = registerBooleanMarkerPref(SHOW_DISTANCE_MARKER_PREF_ID, false, customId);
 		this.twoLineMarkerPreference = registerBooleanMarkerPref(TWO_LINE_MARKER_PREF_ID, false, customId);
 		this.calculationModePreference = registerStringMarkerPref(CALC_MODE_PREF_ID, CalculationMode.FROM_LOCATION.name(), customId);
+		this.elevationSmoothingPreference = registerBooleanMarkerPref(ELEVATION_SMOOTHING_PREF_ID, false, customId);
 		settings.MAP_LINKED_TO_LOCATION.addListener(linkedToLocationListener);
 	}
 
@@ -223,6 +226,17 @@ public class ElevationProfileWidget extends MapWidget {
 		calculationModePreference.setModeValue(appMode, mode.name());
 		// Invalidate stats-line cache so updateWidgets() re-renders with the new prefix even if
 		// the computed point indices happen to be identical (e.g. GPS at position 0).
+		firstVisiblePointIndex = -1;
+		lastVisiblePointIndex = -1;
+		applyMarkerPrefs();
+	}
+
+	public boolean isElevationSmoothing(@NonNull ApplicationMode appMode) {
+		return elevationSmoothingPreference.getModeValue(appMode);
+	}
+
+	public void setElevationSmoothing(@NonNull ApplicationMode appMode, boolean smooth) {
+		elevationSmoothingPreference.setModeValue(appMode, smooth);
 		firstVisiblePointIndex = -1;
 		lastVisiblePointIndex = -1;
 		applyMarkerPrefs();
@@ -628,6 +642,14 @@ public class ElevationProfileWidget extends MapWidget {
 		return new GPXHighlight(x, 0, location);
 	}
 
+	private void runElevationDiffs(@NonNull ElevationDiffsCalculator calc) {
+		if (elevationSmoothingPreference.get()) {
+			calc.calculateElevationDiffs();
+		} else {
+			calc.calculateElevationDiffsRaw();
+		}
+	}
+
 	private void updateLocationDiffs(float toChartX) {
 		List<WptPt> points = allPoints;
 		if (points == null || points.isEmpty() || !(chart.getMarker() instanceof GpxMarkerView)) {
@@ -660,7 +682,7 @@ public class ElevationProfileWidget extends MapWidget {
 				return count;
 			}
 		};
-		calc.calculateElevationDiffs();
+		runElevationDiffs(calc);
 		marker.setLocationDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
 	}
 
@@ -736,7 +758,7 @@ public class ElevationProfileWidget extends MapWidget {
 				return count;
 			}
 		};
-		calc.calculateElevationDiffs();
+		runElevationDiffs(calc);
 		marker.setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown(), isAhead);
 	}
 
@@ -802,7 +824,7 @@ public class ElevationProfileWidget extends MapWidget {
 					return pointsCount;
 				}
 			};
-			elevationDiffsCalc.calculateElevationDiffs();
+			runElevationDiffs(elevationDiffsCalc);
 			String uphill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationUp(), app);
 			updateTextWidget(uphillView, uphill);
 			String downhill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationDown(), app);
