@@ -2519,6 +2519,9 @@ You need to activate the sensor so OsmAnd can find it.</string>
     <string name="shared_string_uphill">Uphill</string>
     <string name="shared_string_downhill">Downhill</string>
     <string name="elevation_profile">Elevation profile</string>
+    <string name="elevation_profile_count_from">Count from</string>
+    <string name="elevation_profile_visible_graph_range">Visible graph range</string>
+    <string name="elevation_profile_two_line_marker">Two lines</string>
     <string name="routing_attr_avoid_low_emission_zone_name">Avoid low emission zones</string>
     <string name="routing_attr_avoid_low_emission_zone_description">Avoid low emission zones</string>
     <string name="poi_routes">Routes</string>

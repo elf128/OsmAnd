@@ -5,6 +5,7 @@
 	android:layout_height="wrap_content"
 	android:orientation="vertical">
 
+	<!-- Toggle: Show slope -->
 	<LinearLayout
 		android:layout_width="match_parent"
 		android:layout_height="wrap_content"
@@ -48,5 +49,222 @@
 		android:layout_width="match_parent"
 		android:layout_height="1dp"
 		android:background="?attr/divider_color_basic" />
+
+	<!-- Toggle: Show elevation -->
+	<LinearLayout
+		android:id="@+id/elevation_in_marker_row"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="horizontal"
+		android:minHeight="@dimen/card_row_min_height"
+		android:gravity="center_vertical">
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:id="@+id/elevation_in_marker_icon"
+			android:layout_width="@dimen/dialog_content_margin"
+			android:layout_height="@dimen/dialog_content_margin"
+			android:layout_marginStart="@dimen/title_padding"
+			tools:src="@drawable/ic_action_altitude" />
+
+		<net.osmand.plus.widgets.TextViewEx
+			style="@style/TitleStyle"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:layout_marginStart="@dimen/dialog_button_height"
+			android:maxLines="1"
+			android:ellipsize="end"
+			android:text="@string/altitude"
+			android:textColor="?android:textColorPrimary" />
+
+		<androidx.appcompat.widget.SwitchCompat
+			android:id="@+id/elevation_in_marker_switch"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginStart="@dimen/title_padding"
+			android:layout_marginEnd="@dimen/content_padding"
+			android:background="@null"
+			android:focusable="false"
+			android:focusableInTouchMode="false"
+			android:clickable="false"
+			android:saveEnabled="false" />
+
+	</LinearLayout>
+
+	<View
+		android:layout_width="match_parent"
+		android:layout_height="1dp"
+		android:background="?attr/divider_color_basic" />
+
+	<!-- Toggle: Show ascent/descent -->
+	<LinearLayout
+		android:id="@+id/gain_drop_in_marker_row"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="horizontal"
+		android:minHeight="@dimen/card_row_min_height"
+		android:gravity="center_vertical">
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:id="@+id/gain_drop_in_marker_icon"
+			android:layout_width="@dimen/dialog_content_margin"
+			android:layout_height="@dimen/dialog_content_margin"
+			android:layout_marginStart="@dimen/title_padding"
+			tools:src="@drawable/ic_action_altitude_ascent" />
+
+		<net.osmand.plus.widgets.TextViewEx
+			style="@style/TitleStyle"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:layout_marginStart="@dimen/dialog_button_height"
+			android:maxLines="1"
+			android:ellipsize="end"
+			android:text="@string/uphill_downhill_split"
+			android:textColor="?android:textColorPrimary" />
+
+		<androidx.appcompat.widget.SwitchCompat
+			android:id="@+id/gain_drop_in_marker_switch"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginStart="@dimen/title_padding"
+			android:layout_marginEnd="@dimen/content_padding"
+			android:background="@null"
+			android:focusable="false"
+			android:focusableInTouchMode="false"
+			android:clickable="false"
+			android:saveEnabled="false" />
+
+	</LinearLayout>
+
+	<View
+		android:layout_width="match_parent"
+		android:layout_height="1dp"
+		android:background="?attr/divider_color_basic" />
+
+	<!-- Toggle: Show distance -->
+	<LinearLayout
+		android:id="@+id/distance_in_marker_row"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="horizontal"
+		android:minHeight="@dimen/card_row_min_height"
+		android:gravity="center_vertical">
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:id="@+id/distance_in_marker_icon"
+			android:layout_width="@dimen/dialog_content_margin"
+			android:layout_height="@dimen/dialog_content_margin"
+			android:layout_marginStart="@dimen/title_padding"
+			tools:src="@drawable/ic_action_distance" />
+
+		<net.osmand.plus.widgets.TextViewEx
+			style="@style/TitleStyle"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:layout_marginStart="@dimen/dialog_button_height"
+			android:maxLines="1"
+			android:ellipsize="end"
+			android:text="@string/distance"
+			android:textColor="?android:textColorPrimary" />
+
+		<androidx.appcompat.widget.SwitchCompat
+			android:id="@+id/distance_in_marker_switch"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginStart="@dimen/title_padding"
+			android:layout_marginEnd="@dimen/content_padding"
+			android:background="@null"
+			android:focusable="false"
+			android:focusableInTouchMode="false"
+			android:clickable="false"
+			android:saveEnabled="false" />
+
+	</LinearLayout>
+
+	<View
+		android:layout_width="match_parent"
+		android:layout_height="1dp"
+		android:background="?attr/divider_color_basic" />
+
+	<!-- Toggle: Two-line marker -->
+	<LinearLayout
+		android:id="@+id/two_line_marker_row"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="horizontal"
+		android:minHeight="@dimen/card_row_min_height"
+		android:gravity="center_vertical">
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:id="@+id/two_line_marker_icon"
+			android:layout_width="@dimen/dialog_content_margin"
+			android:layout_height="@dimen/dialog_content_margin"
+			android:layout_marginStart="@dimen/title_padding"
+			tools:src="@drawable/ic_action_altitude_range" />
+
+		<net.osmand.plus.widgets.TextViewEx
+			style="@style/TitleStyle"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:layout_marginStart="@dimen/dialog_button_height"
+			android:maxLines="1"
+			android:ellipsize="end"
+			android:text="@string/elevation_profile_two_line_marker"
+			android:textColor="?android:textColorPrimary" />
+
+		<androidx.appcompat.widget.SwitchCompat
+			android:id="@+id/two_line_marker_switch"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginStart="@dimen/title_padding"
+			android:layout_marginEnd="@dimen/content_padding"
+			android:background="@null"
+			android:focusable="false"
+			android:focusableInTouchMode="false"
+			android:clickable="false"
+			android:saveEnabled="false" />
+
+	</LinearLayout>
+
+	<View
+		android:layout_width="match_parent"
+		android:layout_height="1dp"
+		android:background="?attr/divider_color_basic" />
+
+	<!-- Section header: Count from -->
+	<net.osmand.plus.widgets.TextViewEx
+		android:id="@+id/count_from_header"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:paddingHorizontal="@dimen/content_padding"
+		android:paddingTop="@dimen/content_padding"
+		android:paddingBottom="@dimen/content_padding_small"
+		android:text="@string/elevation_profile_count_from"
+		android:textColor="?android:textColorSecondary"
+		android:textSize="@dimen/default_sub_text_size" />
+
+	<!-- Radio: From current location -->
+	<include
+		layout="@layout/widget_settings_radio_item"
+		android:id="@+id/calc_from_location_container"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content" />
+
+	<!-- Radio: From start of route -->
+	<include
+		layout="@layout/widget_settings_radio_item"
+		android:id="@+id/calc_from_start_container"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content" />
+
+	<!-- Radio: From visible graph range -->
+	<include
+		layout="@layout/widget_settings_radio_item"
+		android:id="@+id/calc_from_left_edge_container"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content" />
 
 </LinearLayout>

@@ -63,9 +63,23 @@ import java.util.List;
 
 public class ElevationProfileWidget extends MapWidget {
 
+	public enum CalculationMode {
+		FROM_LOCATION, FROM_START, FROM_LEFT_EDGE
+	}
+
 	private static final String SHOW_SLOPE_PREF_ID = "show_slope_elevation_widget";
+	private static final String SHOW_ELEVATION_MARKER_PREF_ID = "show_elevation_in_marker";
+	private static final String SHOW_GAIN_DROP_MARKER_PREF_ID = "show_gain_drop_in_marker";
+	private static final String SHOW_DISTANCE_MARKER_PREF_ID = "show_distance_in_marker";
+	private static final String TWO_LINE_MARKER_PREF_ID = "two_line_marker";
+	private static final String CALC_MODE_PREF_ID = "calc_mode_marker";
 
 	private final CommonPreference<Boolean> showSlopePreference;
+	private final CommonPreference<Boolean> showElevationInMarkerPreference;
+	private final CommonPreference<Boolean> showGainDropInMarkerPreference;
+	private final CommonPreference<Boolean> showDistanceInMarkerPreference;
+	private final CommonPreference<Boolean> twoLineMarkerPreference;
+	private final CommonPreference<String> calculationModePreference;
 
 	private static final int MAX_DISTANCE_TO_SHOW_IM_METERS = 10_000;
 
@@ -91,6 +105,7 @@ public class ElevationProfileWidget extends MapWidget {
 	private TrackChartPoints trackChartPoints;
 
 	private boolean movedToLocation;
+	private float tappedChartDataX = -1f;
 
 	private static Matrix lastStateMatrix;
 	private static String lastRoute;
@@ -106,6 +121,11 @@ public class ElevationProfileWidget extends MapWidget {
 	public ElevationProfileWidget(@NonNull MapActivity mapActivity, @Nullable String customId, @Nullable WidgetsPanel panel) {
 		super(mapActivity, ELEVATION_PROFILE, customId, panel);
 		this.showSlopePreference = registerShowSlopePref(customId);
+		this.showElevationInMarkerPreference = registerBooleanMarkerPref(SHOW_ELEVATION_MARKER_PREF_ID, true, customId);
+		this.showGainDropInMarkerPreference = registerBooleanMarkerPref(SHOW_GAIN_DROP_MARKER_PREF_ID, true, customId);
+		this.showDistanceInMarkerPreference = registerBooleanMarkerPref(SHOW_DISTANCE_MARKER_PREF_ID, false, customId);
+		this.twoLineMarkerPreference = registerBooleanMarkerPref(TWO_LINE_MARKER_PREF_ID, false, customId);
+		this.calculationModePreference = registerStringMarkerPref(CALC_MODE_PREF_ID, CalculationMode.FROM_LOCATION.name(), customId);
 		settings.MAP_LINKED_TO_LOCATION.addListener(linkedToLocationListener);
 	}
 
@@ -114,6 +134,12 @@ public class ElevationProfileWidget extends MapWidget {
 		super.setupView(view);
 		updateVisibility(false);
 		setupStatisticBlocks();
+		view.setOnLongClickListener(v -> {
+			View anchor = chart != null ? chart : v;
+			WidgetsContextMenu.showMenu(anchor, mapActivity, widgetType, customId, null,
+					ScreenLayoutMode.getDefault(v.getContext()), panel, nightMode, true);
+			return true;
+		});
 	}
 
 	public Boolean shouldShowSlope(@NonNull ApplicationMode appMode) {
@@ -130,6 +156,97 @@ public class ElevationProfileWidget extends MapWidget {
 		return settings.registerBooleanPreference(prefId, false)
 				.makeProfile()
 				.cache();
+	}
+
+	@NonNull
+	private CommonPreference<Boolean> registerBooleanMarkerPref(@NonNull String prefId, boolean defaultValue, @Nullable String customId) {
+		String id = Algorithms.isEmpty(customId) ? prefId : prefId + customId;
+		return settings.registerBooleanPreference(id, defaultValue)
+				.makeProfile()
+				.cache();
+	}
+
+	@NonNull
+	private CommonPreference<String> registerStringMarkerPref(@NonNull String prefId, @NonNull String defaultValue, @Nullable String customId) {
+		String id = Algorithms.isEmpty(customId) ? prefId : prefId + customId;
+		return settings.registerStringPreference(id, defaultValue)
+				.makeProfile()
+				.cache();
+	}
+
+	public boolean shouldShowElevationInMarker(@NonNull ApplicationMode appMode) {
+		return showElevationInMarkerPreference.getModeValue(appMode);
+	}
+
+	public void setShowElevationInMarker(@NonNull ApplicationMode appMode, boolean show) {
+		showElevationInMarkerPreference.setModeValue(appMode, show);
+		applyMarkerPrefs();
+	}
+
+	public boolean shouldShowGainDropInMarker(@NonNull ApplicationMode appMode) {
+		return showGainDropInMarkerPreference.getModeValue(appMode);
+	}
+
+	public void setShowGainDropInMarker(@NonNull ApplicationMode appMode, boolean show) {
+		showGainDropInMarkerPreference.setModeValue(appMode, show);
+		applyMarkerPrefs();
+	}
+
+	public boolean shouldShowDistanceInMarker(@NonNull ApplicationMode appMode) {
+		return showDistanceInMarkerPreference.getModeValue(appMode);
+	}
+
+	public void setShowDistanceInMarker(@NonNull ApplicationMode appMode, boolean show) {
+		showDistanceInMarkerPreference.setModeValue(appMode, show);
+		applyMarkerPrefs();
+	}
+
+	public boolean shouldTwoLineMarker(@NonNull ApplicationMode appMode) {
+		return twoLineMarkerPreference.getModeValue(appMode);
+	}
+
+	public void setTwoLineMarker(@NonNull ApplicationMode appMode, boolean twoLine) {
+		twoLineMarkerPreference.setModeValue(appMode, twoLine);
+		applyMarkerPrefs();
+	}
+
+	@NonNull
+	public CalculationMode getCalculationMode(@NonNull ApplicationMode appMode) {
+		try {
+			return CalculationMode.valueOf(calculationModePreference.getModeValue(appMode));
+		} catch (IllegalArgumentException e) {
+			return CalculationMode.FROM_LOCATION;
+		}
+	}
+
+	public void setCalculationMode(@NonNull ApplicationMode appMode, @NonNull CalculationMode mode) {
+		calculationModePreference.setModeValue(appMode, mode.name());
+		applyMarkerPrefs();
+	}
+
+	private void applyMarkerPrefs() {
+		if (chart == null || !(chart.getMarker() instanceof GpxMarkerView)) {
+			return;
+		}
+		GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+		marker.setShowElevation(showElevationInMarkerPreference.get());
+		marker.setShowGainDrop(showGainDropInMarkerPreference.get());
+		marker.setShowDistance(showDistanceInMarkerPreference.get());
+		marker.setTwoLineMode(twoLineMarkerPreference.get());
+
+		if (tappedChartDataX >= 0) {
+			updateSegmentDiffs(tappedChartDataX);
+		}
+
+		// Force refreshContent on the marker by re-applying current highlights
+		Highlight touchHighlight = tappedChartDataX >= 0 ? createHighlight(tappedChartDataX, false) : null;
+		if (locationHighlight != null && touchHighlight != null) {
+			chart.highlightValues(new Highlight[] {locationHighlight, touchHighlight});
+		} else if (locationHighlight != null) {
+			chart.highlightValue(locationHighlight, true);
+		} else if (touchHighlight != null) {
+			chart.highlightValue(touchHighlight, true);
+		}
 	}
 
 	private void restoreLastState() {
@@ -256,6 +373,7 @@ public class ElevationProfileWidget extends MapWidget {
 	}
 
 	private void setupChart() {
+		tappedChartDataX = -1f;
 		gpx = GpxUiHelper.makeGpxFromLocations(route.getImmutableAllLocations(), app);
 		GpxTrackAnalysis analysis = gpx.getAnalysis(0);
 		allPoints = gpx.getAllSegmentsPoints();
@@ -338,7 +456,8 @@ public class ElevationProfileWidget extends MapWidget {
 				Highlight touchHighlight = chart.getHighlightByTouchPoint(me.getX(), me.getY());
 				if (touchHighlight != null) {
 					touchHighlight = createHighlight(touchHighlight.getX(), false);
-					updateSegmentDiffs(touchHighlight.getX());
+					tappedChartDataX = touchHighlight.getX();
+					updateSegmentDiffs(tappedChartDataX);
 				}
 
 				if (locationHighlight != null && touchHighlight != null) {
@@ -390,6 +509,11 @@ public class ElevationProfileWidget extends MapWidget {
 		appearance.setMarkerIcon(markerIcon);
 		ChartUtils.setupElevationChart(chart, appearance);
 
+		if (chart.getMarker() instanceof GpxMarkerView) {
+			((GpxMarkerView) chart.getMarker()).setDistanceAtBottom(true);
+		}
+		applyMarkerPrefs();
+
 		chart.setHighlightPerTapEnabled(false);
 		chart.setHighlightPerDragEnabled(false);
 	}
@@ -438,6 +562,18 @@ public class ElevationProfileWidget extends MapWidget {
 				this.movedToLocation = false;
 			}
 			gpxItem.chartHighlightPos = pos;
+			updateLocationDiffs(pos);
+			if (tappedChartDataX >= 0) {
+				CalculationMode mode;
+				try {
+					mode = CalculationMode.valueOf(calculationModePreference.get());
+				} catch (IllegalArgumentException e) {
+					mode = CalculationMode.FROM_LOCATION;
+				}
+				if (mode == CalculationMode.FROM_LOCATION) {
+					updateSegmentDiffs(tappedChartDataX);
+				}
+			}
 			Highlight newLocationHighlight = createHighlight(pos, true);
 			refreshHighlights(newLocationHighlight);
 			storeLastState(true);
@@ -488,13 +624,74 @@ public class ElevationProfileWidget extends MapWidget {
 		return new GPXHighlight(x, 0, location);
 	}
 
-	private void updateSegmentDiffs(float tappedChartX) {
+	private void updateLocationDiffs(float toChartX) {
 		List<WptPt> points = allPoints;
-		if (points == null || points.isEmpty() || chart.getMarker() == null) {
+		if (points == null || points.isEmpty() || !(chart.getMarker() instanceof GpxMarkerView)) {
 			return;
 		}
-		float currentChartX = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
-		double fromDist = (currentChartX > 0 ? currentChartX : 0) * toMetersMultiplier;
+		GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+		if (toChartX <= 0) {
+			marker.setLocationDiffs(0, 0);
+			return;
+		}
+		double toDist = toChartX * toMetersMultiplier;
+		int toIndex = gpx.getPointIndexByDistance(points, toDist);
+		if (toIndex < 1) {
+			marker.setLocationDiffs(0, 0);
+			return;
+		}
+		final int count = toIndex + 1;
+		final List<WptPt> pts = points;
+		ElevationDiffsCalculator calc = new ElevationDiffsCalculator() {
+			@Override
+			public double getPointDistance(int index) {
+				return pts.get(index).getDistance();
+			}
+			@Override
+			public double getPointElevation(int index) {
+				return pts.get(index).getEle();
+			}
+			@Override
+			public int getPointsCount() {
+				return count;
+			}
+		};
+		calc.calculateElevationDiffs();
+		marker.setLocationDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
+	}
+
+	private void updateSegmentDiffs(float tappedChartX) {
+		List<WptPt> points = allPoints;
+		if (points == null || points.isEmpty() || !(chart.getMarker() instanceof GpxMarkerView)) {
+			return;
+		}
+		GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+
+		CalculationMode mode;
+		try {
+			mode = CalculationMode.valueOf(calculationModePreference.get());
+		} catch (IllegalArgumentException e) {
+			mode = CalculationMode.FROM_LOCATION;
+		}
+
+		float fromChartX;
+		switch (mode) {
+			case FROM_LOCATION:
+				float pos = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
+				if (pos <= 0) {
+					marker.setSegmentDiffsUnavailable();
+					return;
+				}
+				fromChartX = pos;
+				break;
+			case FROM_LEFT_EDGE:
+				fromChartX = chart.getLowestVisibleX();
+				break;
+			default: // FROM_START
+				fromChartX = 0f;
+		}
+
+		double fromDist = fromChartX * toMetersMultiplier;
 		double toDist = tappedChartX * toMetersMultiplier;
 		int fromIndex = gpx.getPointIndexByDistance(points, fromDist);
 		int toIndex = gpx.getPointIndexByDistance(points, toDist);
@@ -524,9 +721,7 @@ public class ElevationProfileWidget extends MapWidget {
 			}
 		};
 		calc.calculateElevationDiffs();
-		if (chart.getMarker() instanceof GpxMarkerView) {
-			((GpxMarkerView) chart.getMarker()).setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
-		}
+		marker.setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
 	}
 
 	private boolean updateWidgets() {
