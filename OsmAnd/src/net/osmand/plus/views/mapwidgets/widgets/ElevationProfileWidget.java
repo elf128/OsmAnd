@@ -43,7 +43,6 @@ import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.settings.backend.preferences.CommonPreference;
 import net.osmand.plus.track.helpers.GpxDisplayItem;
 import net.osmand.plus.track.helpers.GpxUiHelper;
-import net.osmand.plus.utils.ColorUtilities;
 import net.osmand.plus.utils.OsmAndFormatter;
 import net.osmand.plus.utils.UiUtilities;
 import net.osmand.plus.views.layers.base.OsmandMapLayer.DrawSettings;
@@ -309,9 +308,6 @@ public class ElevationProfileWidget extends MapWidget {
 	private View setupStatisticBlock(int viewId, int textId, int iconId) {
 		View blockView = getView().findViewById(viewId);
 
-		TextView title = blockView.findViewById(R.id.title);
-		title.setText(textId);
-
 		TextView text = blockView.findViewById(R.id.widget_text);
 		text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
 
@@ -356,16 +352,13 @@ public class ElevationProfileWidget extends MapWidget {
 	@Override
 	protected void onPanelAppearanceChanged(@NonNull ResolvedPanelAppearance appearance) {
 		super.onPanelAppearanceChanged(appearance);
-		int primaryTextColor = ColorUtilities.getPrimaryTextColor(app, nightMode);
-		int secondaryTextColor = ColorUtilities.getSecondaryTextColor(app, nightMode);
-		int dividerColorBasic = ColorUtilities.getDividerColor(app, nightMode);
-		int bgColor = ColorUtilities.getListBgColor(app, nightMode);
+		int primaryTextColor = appearance.getPrimaryTextColor();
+		int secondaryTextColor = appearance.getSecondaryTextColor();
 
 		View[] statisticBlocks = new View[] {uphillView, downhillView, gradeView};
 		for (View block : statisticBlocks) {
 			((TextView) block.findViewById(R.id.widget_text)).setTextColor(primaryTextColor);
 			((TextView) block.findViewById(R.id.widget_text_small)).setTextColor(secondaryTextColor);
-			((TextView) block.findViewById(R.id.title)).setTextColor(secondaryTextColor);
 		}
 		View view = getView();
 		View[] dividers = new View[] {
@@ -373,9 +366,9 @@ public class ElevationProfileWidget extends MapWidget {
 				view.findViewById(R.id.statistics_block_divider_2)
 		};
 		for (View divider : dividers) {
-			divider.setBackgroundColor(dividerColorBasic);
+			divider.setBackgroundColor(appearance.getDividerColor());
 		}
-		view.findViewById(R.id.elevation_profile_widget_background).setBackgroundColor(bgColor);
+		view.findViewById(R.id.elevation_profile_widget_background).setBackgroundColor(appearance.getBackground().getColor());
 		if (chart != null) {
 			updateChartAppearance(chart);
 		}
@@ -536,6 +529,7 @@ public class ElevationProfileWidget extends MapWidget {
 		ElevationChartAppearance appearance = new ElevationChartAppearance();
 		appearance.setContext(themedContext);
 		appearance.setMarkerIcon(markerIcon);
+		appearance.setTopOffset(48f);
 		ChartUtils.setupElevationChart(chart, appearance);
 
 		if (chart.getMarker() instanceof GpxMarkerView) {

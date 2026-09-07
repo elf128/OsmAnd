@@ -6,6 +6,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -159,7 +160,7 @@ public class GpxMarkerView extends MarkerView {
 		distanceAtBottom = bottom;
 		if (bottom && chartHeightForBottom == 0) {
 			chartHeightForBottom = (int) getContext().getResources()
-					.getDimension(R.dimen.route_info_line_chart_height);
+					.getDimension(R.dimen.elevation_widget_height);
 		}
 	}
 
@@ -509,7 +510,8 @@ public class GpxMarkerView extends MarkerView {
 	public MPPointF getOffsetForDrawingAtPoint(float posX, float posY) {
 		int margin = AndroidUtils.dpToPx(getContext(), 3f);
 		MPPointF offset = getOffset();
-		offset.y = -posY;
+		int bubbleHeight = getBubbleHeight();
+		offset.y = getContentTopPx() - bubbleHeight - posY;
 		if (posX + offset.x - margin < 0) {
 			offset.x -= (offset.x + posX - margin);
 		}
@@ -535,14 +537,30 @@ public class GpxMarkerView extends MarkerView {
 			if (contentBottom > 0) {
 				View frame = getChildAt(0);
 				if (frame != null) {
-					// Expand the inner FrameLayout so layout_gravity="bottom" places the container
-					// at contentBottom (just into the X axis zone), within the frame's own bounds.
-					// Container top = frameHeight - containerHeight = contentBottom.
-					int frameHeight = contentBottom + xAxisBottomContainer.getMeasuredHeight();
+					int bubbleHeight = getBubbleHeight();
+					int frameHeight = (contentBottom - getContentTopPx() + bubbleHeight) + xAxisBottomContainer.getMeasuredHeight();
 					frame.layout(frame.getLeft(), 0, frame.getRight(), frameHeight);
 				}
 			}
 		}
+	}
+
+	private int getBubbleHeight() {
+		ViewGroup frame = (ViewGroup) getChildAt(0);
+		if (frame != null && frame.getChildCount() > 0) {
+			return frame.getChildAt(0).getMeasuredHeight();
+		}
+		return 0;
+	}
+
+	private int getContentTopPx() {
+		if (getChartView() instanceof BarLineChartBase) {
+			float contentTop = ((BarLineChartBase<?>) getChartView()).getViewPortHandler().contentTop();
+			if (contentTop >= 0) {
+				return (int) contentTop;
+			}
+		}
+		return 0;
 	}
 
 	private int getContentBottomPx() {
