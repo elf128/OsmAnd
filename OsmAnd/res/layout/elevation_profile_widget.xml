@@ -16,7 +16,8 @@
         android:layout_width="match_parent"
         android:layout_height="@dimen/bottom_sheet_list_item_height"
         android:layout_gravity="top"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:visibility="gone">
 
         <FrameLayout
             android:id="@+id/uphill_widget"

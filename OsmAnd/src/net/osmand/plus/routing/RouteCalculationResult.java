@@ -1381,6 +1381,22 @@ public class RouteCalculationResult {
 		return 0;
 	}
 
+	public List<Float> getIntermediateDistancesFromStart() {
+		List<Float> result = new ArrayList<>();
+		if (listDistance == null || listDistance.length == 0) {
+			return result;
+		}
+		for (int dirIdx : intermediatePoints) {
+			if (dirIdx < directions.size()) {
+				int locIdx = directions.get(dirIdx).routePointOffset;
+				if (locIdx < listDistance.length) {
+					result.add((float) (listDistance[0] - listDistance[locIdx]));
+				}
+			}
+		}
+		return result;
+	}
+
 	public int getDistanceFromStart() {
 		if (listDistance != null && currentRoute > 0 && currentRoute < listDistance.length) {
 			return listDistance[0] - listDistance[currentRoute - 1];

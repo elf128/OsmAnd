@@ -76,23 +76,13 @@ public class GpxMarkerView extends MarkerView {
 	private boolean twoLineMode = false;
 	private boolean distanceAtBottom = false;
 
-	// Segment diffs state — tapped marker (calc-mode dependent)
-	private double segmentGainM = Double.NaN;
-	private double segmentDropM = Double.NaN;
-	private boolean gpsUnavailable = false;
-	// null=plain (FROM_START/FROM_LEFT_EDGE), true=ahead (+), false=behind (-)
-	@Nullable
-	private Boolean segmentIsAhead = null;
-	// Relative distance to display (NaN = use raw entry.x via dataSet.getDivX)
-	private double segmentDistanceM = Double.NaN;
-
-	// Segment diffs state — GPS location marker (always FROM_START)
-	private double locationGainM = Double.NaN;
-	private double locationDropM = Double.NaN;
-	private boolean locationGpsUnavailable = false;
-
 	// Chart height for bottom-container positioning (read from dimen on setDistanceAtBottom)
 	private int chartHeightForBottom = 0;
+
+	private final Drawable locationIcon;
+	private Drawable waypointIcon;
+	private Drawable destinationIcon;
+	private final ImageView iconImageView;
 
 	public GpxMarkerView(@NonNull Context context, @Nullable Drawable icon) {
 		this(context, icon, 0, false, false);
@@ -135,7 +125,9 @@ public class GpxMarkerView extends MarkerView {
 		segmentDropText = findViewById(R.id.segment_drop_text);
 
 		hasIcon = icon != null;
-		((ImageView) findViewById(R.id.icon)).setImageDrawable(icon);
+		locationIcon = icon;
+		iconImageView = findViewById(R.id.icon);
+		iconImageView.setImageDrawable(icon);
 	}
 
 	// --- Feature flag setters ---
@@ -164,37 +156,12 @@ public class GpxMarkerView extends MarkerView {
 		}
 	}
 
-	// --- Data setters ---
-
-	public void setSegmentDiffs(double gainM, double dropM, @Nullable Boolean isAhead) {
-		segmentGainM = gainM;
-		segmentDropM = dropM;
-		gpsUnavailable = false;
-		segmentIsAhead = isAhead;
+	public void setWaypointIcon(@Nullable Drawable icon) {
+		waypointIcon = icon;
 	}
 
-	public void setSegmentDistance(double distM) {
-		segmentDistanceM = distM;
-	}
-
-	public void setSegmentDiffsUnavailable() {
-		segmentGainM = 0;
-		segmentDropM = 0;
-		gpsUnavailable = true;
-		segmentIsAhead = null;
-		segmentDistanceM = Double.NaN;
-	}
-
-	public void setLocationDiffs(double gainM, double dropM) {
-		locationGainM = gainM;
-		locationDropM = dropM;
-		locationGpsUnavailable = false;
-	}
-
-	public void setLocationDiffsUnavailable() {
-		locationGainM = 0;
-		locationDropM = 0;
-		locationGpsUnavailable = true;
+	public void setDestinationIcon(@Nullable Drawable icon) {
+		destinationIcon = icon;
 	}
 
 	// --- refreshContent ---
@@ -202,8 +169,10 @@ public class GpxMarkerView extends MarkerView {
 	@Override
 	public void refreshContent(@NonNull Entry entry, @NonNull Highlight highlight) {
 		ChartData<?> chartData = getChartView().getData();
-		boolean isLocationHighlight = highlight instanceof GPXHighlight
-				&& ((GPXHighlight) highlight).shouldShowLocationIcon();
+
+		GPXHighlight gpxHighlight = highlight instanceof GPXHighlight ? (GPXHighlight) highlight : null;
+		boolean showIcon = hasIcon && gpxHighlight != null
+				&& (gpxHighlight.shouldShowLocationIcon() || gpxHighlight.isWaypoint());
 
 		// Compute effective dataset count (exclude extrema dataset)
 		int dataSetCount = chartData.getDataSetCount();
@@ -231,27 +200,22 @@ public class GpxMarkerView extends MarkerView {
 		updateYAxisContent(entry, firstDataSet, firstYAxisContainer);
 		updateYAxisContent(entry, secondDataSet, secondYAxisContainer);
 
-		// Update x-axis content for both inline and bottom containers.
-		// For the tap marker with a mode-relative distance, override entry.x.
-		if (firstDataSet != null) {
-			double distOverride = (!isLocationHighlight && !Double.isNaN(segmentDistanceM))
-					? segmentDistanceM : Double.NaN;
-			Boolean distIsAhead = isLocationHighlight ? null : segmentIsAhead;
-			updateXAxisContent(firstDataSet, entry, distOverride, distIsAhead);
-		}
-
-		// Select the appropriate diffs pair for this highlight type
-		double currentGainM = isLocationHighlight ? locationGainM : segmentGainM;
-		double currentDropM = isLocationHighlight ? locationDropM : segmentDropM;
-		boolean currentGpsUnavail = isLocationHighlight ? locationGpsUnavailable : gpsUnavailable;
+		// Read per-highlight data
+		double currentGainM = gpxHighlight != null ? gpxHighlight.getGainM() : Double.NaN;
+		double currentDropM = gpxHighlight != null ? gpxHighlight.getDropM() : Double.NaN;
+		boolean currentGpsUnavail = gpxHighlight != null && gpxHighlight.isUnavailable();
+		Boolean currentIsAhead = gpxHighlight != null ? gpxHighlight.getIsAhead() : null;
 		boolean hasDiffsData = !Double.isNaN(currentGainM) || currentGpsUnavail;
+
+		// Update x-axis content; use distanceM from highlight when set (tap/waypoint relative dist)
+		if (firstDataSet != null) {
+			double distOverride = gpxHighlight != null ? gpxHighlight.getDistanceM() : Double.NaN;
+			updateXAxisContent(firstDataSet, entry, distOverride, currentIsAhead);
+		}
 
 		if (hasDiffsData) {
 			OsmandApplication app = getMyApplication();
-			// Location marker is always FROM_START → plain. Tap marker uses sign from calc mode.
-			String sign = (!isLocationHighlight && segmentIsAhead != null)
-					? (segmentIsAhead ? "+" : "-")
-					: " ";
+			String sign = currentIsAhead != null ? (currentIsAhead ? "+" : "-") : " ";
 			segmentGainText.setText(currentGpsUnavail ? "↑ -" : "↑" + sign + OsmAndFormatter.getFormattedAlt(currentGainM, app));
 			segmentDropText.setText(currentGpsUnavail ? "↓ -" : "↓" + sign + OsmAndFormatter.getFormattedAlt(currentDropM, app));
 		}
@@ -263,11 +227,24 @@ public class GpxMarkerView extends MarkerView {
 			xAxisBottomContainer.setVisibility(showDistance && isDistType ? VISIBLE : GONE);
 		}
 
+		// Switch icon drawable based on highlight type
+		if (showIcon) {
+			Drawable icon;
+			if (gpxHighlight.isDestination() && destinationIcon != null) {
+				icon = destinationIcon;
+			} else if (gpxHighlight.isWaypoint() && waypointIcon != null) {
+				icon = waypointIcon;
+			} else {
+				icon = locationIcon;
+			}
+			iconImageView.setImageDrawable(icon);
+		}
+
 		// Arrange items into rows
 		if (twoLineMode) {
-			arrangeTwoLines(isLocationHighlight, dataSetCount, firstDataSet, hasDiffsData);
+			arrangeTwoLines(showIcon, dataSetCount, firstDataSet, hasDiffsData);
 		} else {
-			arrangeSingleLine(isLocationHighlight, dataSetCount, firstDataSet, hasDiffsData);
+			arrangeSingleLine(showIcon, dataSetCount, firstDataSet, hasDiffsData);
 		}
 
 		super.refreshContent(entry, highlight);
@@ -327,15 +304,13 @@ public class GpxMarkerView extends MarkerView {
 	 * Single-line mode: rebuilds bubble_row0 from scratch.
 	 * Works correctly whether called after twoLineMode or from a fresh state.
 	 */
-	private void arrangeSingleLine(boolean isLocationHighlight, int dataSetCount,
+	private void arrangeSingleLine(boolean showIcon, int dataSetCount,
 	                               @Nullable OrderedLineDataSet firstDataSet, boolean hasDiffsData) {
 		bubbleRow0.removeAllViews();
 		bubbleRow1.removeAllViews();
 		rowDivider.setVisibility(GONE);
 		bubbleRow1.setVisibility(GONE);
 		iconDivider.setVisibility(GONE);
-
-		boolean showIcon = hasIcon && isLocationHighlight;
 		boolean showFirst = showElevation && firstDataSet != null;
 		boolean showSecond = showElevation && dataSetCount >= 2;
 		boolean showInlineDist = !distanceAtBottom && (showXAxisValue || showDistance) && firstDataSet != null;
@@ -394,13 +369,13 @@ public class GpxMarkerView extends MarkerView {
 	 * Two-line mode: distributes non-icon items across two rows.
 	 * Icon always stays in row0; split is based on non-icon item count only.
 	 */
-	private void arrangeTwoLines(boolean isLocationHighlight, int dataSetCount,
+	private void arrangeTwoLines(boolean showIcon, int dataSetCount,
 	                             @Nullable OrderedLineDataSet firstDataSet, boolean hasDiffsData) {
 		bubbleRow0.removeAllViews();
 		bubbleRow1.removeAllViews();
 		iconDivider.setVisibility(GONE);
 
-		boolean hasIconItem = hasIcon && isLocationHighlight;
+		boolean hasIconItem = showIcon;
 		List<View> items = new ArrayList<>();
 
 		if (showElevation && firstDataSet != null) items.add(firstYAxisContainer);

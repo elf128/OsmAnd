@@ -5,13 +5,10 @@ import static net.osmand.plus.views.mapwidgets.WidgetType.ELEVATION_PROFILE;
 
 import android.content.Context;
 import android.graphics.Matrix;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
-import android.widget.ImageView;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -19,7 +16,6 @@ import androidx.annotation.Nullable;
 import com.github.mikephil.charting.charts.ElevationChart;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.YAxis.AxisDependency;
-import com.github.mikephil.charting.data.DataSet;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.highlight.Highlight;
@@ -43,7 +39,6 @@ import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.settings.backend.preferences.CommonPreference;
 import net.osmand.plus.track.helpers.GpxDisplayItem;
 import net.osmand.plus.track.helpers.GpxUiHelper;
-import net.osmand.plus.utils.OsmAndFormatter;
 import net.osmand.plus.utils.UiUtilities;
 import net.osmand.plus.views.layers.base.OsmandMapLayer.DrawSettings;
 import net.osmand.plus.views.mapwidgets.WidgetsContextMenu;
@@ -84,9 +79,6 @@ public class ElevationProfileWidget extends MapWidget {
 
 	private static final int MAX_DISTANCE_TO_SHOW_IM_METERS = 10_000;
 
-	private View uphillView;
-	private View downhillView;
-	private View gradeView;
 	private ElevationChart chart;
 
 	private GpxDisplayItem gpxItem;
@@ -98,9 +90,6 @@ public class ElevationProfileWidget extends MapWidget {
 
 	private boolean showSlopes;
 	private RouteCalculationResult route;
-	private int firstVisiblePointIndex = -1;
-	private int lastVisiblePointIndex = -1;
-	private OrderedLineDataSet slopeDataSet;
 
 	@Nullable
 	private TrackChartPoints trackChartPoints;
@@ -135,7 +124,6 @@ public class ElevationProfileWidget extends MapWidget {
 	protected void setupView(@NonNull View view) {
 		super.setupView(view);
 		updateVisibility(false);
-		setupStatisticBlocks();
 		view.setOnLongClickListener(v -> {
 			View anchor = chart != null ? chart : v;
 			WidgetsContextMenu.showMenu(anchor, mapActivity, widgetType, customId, null,
@@ -223,10 +211,6 @@ public class ElevationProfileWidget extends MapWidget {
 
 	public void setCalculationMode(@NonNull ApplicationMode appMode, @NonNull CalculationMode mode) {
 		calculationModePreference.setModeValue(appMode, mode.name());
-		// Invalidate stats-line cache so updateWidgets() re-renders with the new prefix even if
-		// the computed point indices happen to be identical (e.g. GPS at position 0).
-		firstVisiblePointIndex = -1;
-		lastVisiblePointIndex = -1;
 		applyMarkerPrefs();
 	}
 
@@ -236,8 +220,6 @@ public class ElevationProfileWidget extends MapWidget {
 
 	public void setElevationSmoothing(@NonNull ApplicationMode appMode, boolean smooth) {
 		elevationSmoothingPreference.setModeValue(appMode, smooth);
-		firstVisiblePointIndex = -1;
-		lastVisiblePointIndex = -1;
 		applyMarkerPrefs();
 	}
 
@@ -251,19 +233,11 @@ public class ElevationProfileWidget extends MapWidget {
 		marker.setShowDistance(showDistanceInMarkerPreference.get());
 		marker.setTwoLineMode(twoLineMarkerPreference.get());
 
-		if (tappedChartDataX >= 0) {
-			updateSegmentDiffs(tappedChartDataX);
+		if (tappedChartDataX >= 0 && touchHighlight != null) {
+			updateSegmentDiffs(touchHighlight, tappedChartDataX);
 		}
-
-		// Force refreshContent on the marker by re-applying current highlights
-		Highlight touchHighlight = tappedChartDataX >= 0 ? createHighlight(tappedChartDataX, false) : null;
-		if (locationHighlight != null && touchHighlight != null) {
-			chart.highlightValues(new Highlight[] {locationHighlight, touchHighlight});
-		} else if (locationHighlight != null) {
-			chart.highlightValue(locationHighlight, true);
-		} else if (touchHighlight != null) {
-			chart.highlightValue(touchHighlight, true);
-		}
+		updateWaypointDiffs();
+		refreshHighlights();
 	}
 
 	private void restoreLastState() {
@@ -289,32 +263,6 @@ public class ElevationProfileWidget extends MapWidget {
 	@Override
 	protected int getLayoutId() {
 		return R.layout.elevation_profile_widget;
-	}
-
-	private void setupStatisticBlocks() {
-		uphillView = setupStatisticBlock(R.id.uphill_widget,
-				R.string.shared_string_uphill,
-				R.drawable.ic_action_ascent_arrow_16);
-
-		downhillView = setupStatisticBlock(R.id.downhill_widget,
-				R.string.shared_string_downhill,
-				R.drawable.ic_action_descent_arrow_16);
-
-		gradeView = setupStatisticBlock(R.id.grade_widget,
-				R.string.shared_string_grade,
-				R.drawable.ic_action_percent_16);
-	}
-
-	private View setupStatisticBlock(int viewId, int textId, int iconId) {
-		View blockView = getView().findViewById(viewId);
-
-		TextView text = blockView.findViewById(R.id.widget_text);
-		text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-		ImageView icon = blockView.findViewById(R.id.image);
-		icon.setImageResource(iconId);
-
-		return blockView;
 	}
 
 	@Override
@@ -353,22 +301,7 @@ public class ElevationProfileWidget extends MapWidget {
 	protected void onPanelAppearanceChanged(@NonNull ResolvedPanelAppearance appearance) {
 		super.onPanelAppearanceChanged(appearance);
 		int primaryTextColor = appearance.getPrimaryTextColor();
-		int secondaryTextColor = appearance.getSecondaryTextColor();
-
-		View[] statisticBlocks = new View[] {uphillView, downhillView, gradeView};
-		for (View block : statisticBlocks) {
-			((TextView) block.findViewById(R.id.widget_text)).setTextColor(primaryTextColor);
-			((TextView) block.findViewById(R.id.widget_text_small)).setTextColor(secondaryTextColor);
-		}
-		View view = getView();
-		View[] dividers = new View[] {
-				view.findViewById(R.id.statistics_block_divider_1),
-				view.findViewById(R.id.statistics_block_divider_2)
-		};
-		for (View divider : dividers) {
-			divider.setBackgroundColor(appearance.getDividerColor());
-		}
-		view.findViewById(R.id.elevation_profile_widget_background).setBackgroundColor(appearance.getBackground().getColor());
+		getView().findViewById(R.id.elevation_profile_widget_background).setBackgroundColor(appearance.getBackground().getColor());
 		if (chart != null) {
 			updateChartAppearance(chart);
 		}
@@ -400,9 +333,6 @@ public class ElevationProfileWidget extends MapWidget {
 		GpxTrackAnalysis analysis = gpx.getAnalysis(0);
 		allPoints = gpx.getAllSegmentsPoints();
 		gpxItem = GpxUiHelper.makeGpxDisplayItem(app, gpx, ROUTE, analysis);
-		firstVisiblePointIndex = -1;
-		lastVisiblePointIndex = -1;
-		slopeDataSet = null;
 
 		chart = getView().findViewById(R.id.line_chart);
 		BaseCommonChartAdapter chartAdapter = new BaseCommonChartAdapter(app, chart, true);
@@ -420,13 +350,13 @@ public class ElevationProfileWidget extends MapWidget {
 				if (slopeDataSet != null) {
 					dataSets.add(slopeDataSet);
 				}
-				this.slopeDataSet = slopeDataSet;
 			}
 
 			chartAdapter.updateContent(new LineData(dataSets), gpxItem);
 			toMetersMultiplier = ((OrderedLineDataSet) dataSets.get(0)).getDivX();
 
 			setupZoom(chart);
+			setupWaypointHighlights();
 			chart.setVisibility(View.VISIBLE);
 		} else {
 			chart.setVisibility(View.GONE);
@@ -439,20 +369,8 @@ public class ElevationProfileWidget extends MapWidget {
 			@Override
 			public void onChartGestureStart(MotionEvent me, ChartGesture lastPerformedGesture) {
 				hasTranslated = false;
-				Highlight[] highlighted = chart.getHighlighted();
-				boolean setupDrawX = false;
-				if (highlighted != null && highlighted.length > 0) {
-					for (Highlight highlight : highlighted) {
-						if (highlight != locationHighlight) {
-							highlightDrawX = highlight.getDrawX();
-							setupDrawX = true;
-							break;
-						}
-					}
-				}
-				if (!setupDrawX) {
-					highlightDrawX = -1;
-				}
+				GPXHighlight touch = touchHighlight;
+				highlightDrawX = touch != null ? touch.getDrawX() : -1;
 			}
 
 			@Override
@@ -474,21 +392,14 @@ public class ElevationProfileWidget extends MapWidget {
 
 			@Override
 			public void onChartSingleTapped(MotionEvent me) {
-				Highlight locationHighlight = ElevationProfileWidget.this.locationHighlight;
-				Highlight touchHighlight = chart.getHighlightByTouchPoint(me.getX(), me.getY());
-				if (touchHighlight != null) {
-					touchHighlight = createHighlight(touchHighlight.getX(), false);
-					tappedChartDataX = touchHighlight.getX();
-					updateSegmentDiffs(tappedChartDataX);
+				Highlight raw = chart.getHighlightByTouchPoint(me.getX(), me.getY());
+				if (raw != null) {
+					GPXHighlight newTouch = createGPXHighlight(raw.getX(), false);
+					tappedChartDataX = newTouch.getX();
+					updateSegmentDiffs(newTouch, tappedChartDataX);
+					touchHighlight = newTouch;
 				}
-
-				if (locationHighlight != null && touchHighlight != null) {
-					chart.highlightValues(new Highlight[] {locationHighlight, touchHighlight});
-				} else if (locationHighlight != null) {
-					chart.highlightValue(locationHighlight, true);
-				} else if (touchHighlight != null) {
-					chart.highlightValue(touchHighlight, true);
-				}
+				refreshHighlights();
 			}
 
 			@Override
@@ -504,14 +415,13 @@ public class ElevationProfileWidget extends MapWidget {
 			public void onChartTranslate(MotionEvent me, float dX, float dY) {
 				hasTranslated = true;
 				if (highlightDrawX != -1) {
-					Highlight h = chart.getHighlightByTouchPoint(highlightDrawX, 0f);
-					if (h != null) {
-						h = createHighlight(h.getX(), false);
-						if (locationHighlight != null) {
-							chart.highlightValues(new Highlight[] {locationHighlight, h});
-						} else {
-							chart.highlightValue(h, true);
-						}
+					Highlight raw = chart.getHighlightByTouchPoint(highlightDrawX, 0f);
+					if (raw != null) {
+						GPXHighlight newTouch = createGPXHighlight(raw.getX(), false);
+						tappedChartDataX = newTouch.getX();
+						updateSegmentDiffs(newTouch, tappedChartDataX);
+						touchHighlight = newTouch;
+						refreshHighlights();
 					}
 				}
 				app.runInUIThread(() -> updateWidgets());
@@ -525,6 +435,9 @@ public class ElevationProfileWidget extends MapWidget {
 		int profileColor = appMode.getProfileColor(isNightMode());
 		Context themedContext = UiUtilities.getThemedContext(chart.getContext(), nightMode);
 		Drawable markerIcon = iconsCache.getPaintedIcon(R.drawable.ic_action_location_color, profileColor);
+		Drawable waypointIcon = iconsCache.getPaintedIcon(R.drawable.ic_action_flag,
+				app.getResources().getColor(R.color.gpx_chart_orange_label, null));
+		Drawable destinationIcon = iconsCache.getPaintedIcon(R.drawable.ic_action_finish_navigation, profileColor);
 
 		ElevationChartAppearance appearance = new ElevationChartAppearance();
 		appearance.setContext(themedContext);
@@ -533,7 +446,10 @@ public class ElevationProfileWidget extends MapWidget {
 		ChartUtils.setupElevationChart(chart, appearance);
 
 		if (chart.getMarker() instanceof GpxMarkerView) {
-			((GpxMarkerView) chart.getMarker()).setDistanceAtBottom(true);
+			GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+			marker.setDistanceAtBottom(true);
+			marker.setWaypointIcon(waypointIcon);
+			marker.setDestinationIcon(destinationIcon);
 		}
 		applyMarkerPrefs();
 
@@ -541,7 +457,11 @@ public class ElevationProfileWidget extends MapWidget {
 		chart.setHighlightPerDragEnabled(false);
 	}
 
-	private Highlight locationHighlight;
+	@Nullable
+	private GPXHighlight locationHighlight;
+	@Nullable
+	private GPXHighlight touchHighlight;
+	private List<GPXHighlight> waypointHighlights = new ArrayList<>();
 
 	private boolean updateChart(boolean forceUpdate) {
 		Location location = app.getLocationProvider().getLastKnownLocation();
@@ -551,7 +471,8 @@ public class ElevationProfileWidget extends MapWidget {
 		myLocation = location;
 		if (location == null) {
 			gpxItem.chartHighlightPos = -1f;
-			refreshHighlights(null);
+			locationHighlight = null;
+			refreshHighlights();
 			return true;
 		}
 		LineData lineData = chart.getLineData();
@@ -564,7 +485,8 @@ public class ElevationProfileWidget extends MapWidget {
 		float distanceFromStart = route.getDistanceFromStart();
 		if (distanceFromStart == 0) {
 			gpxItem.chartHighlightPos = -1f;
-			refreshHighlights(null);
+			locationHighlight = null;
+			refreshHighlights();
 			return true;
 		}
 		float minVisibleX = chart.getLowestVisibleX();
@@ -585,8 +507,11 @@ public class ElevationProfileWidget extends MapWidget {
 				this.movedToLocation = false;
 			}
 			gpxItem.chartHighlightPos = pos;
-			updateLocationDiffs(pos);
-			if (tappedChartDataX >= 0) {
+			GPXHighlight newLocationHighlight = createGPXHighlight(pos, true);
+			updateLocationDiffs(newLocationHighlight, pos);
+			locationHighlight = newLocationHighlight;
+			updateWaypointDiffs();
+			if (tappedChartDataX >= 0 && touchHighlight != null) {
 				CalculationMode mode;
 				try {
 					mode = CalculationMode.valueOf(calculationModePreference.get());
@@ -594,56 +519,27 @@ public class ElevationProfileWidget extends MapWidget {
 					mode = CalculationMode.FROM_LOCATION;
 				}
 				if (mode == CalculationMode.FROM_LOCATION) {
-					updateSegmentDiffs(tappedChartDataX);
+					updateSegmentDiffs(touchHighlight, tappedChartDataX);
 				}
 			}
-			Highlight newLocationHighlight = createHighlight(pos, true);
-			refreshHighlights(newLocationHighlight);
+			refreshHighlights();
 			storeLastState(true);
 		}
 		return true;
 	}
 
-	private void refreshHighlights(@Nullable Highlight newLocationHighlight) {
-		Highlight[] highlighted = chart.getHighlighted();
-		int replaceIndex = -1;
-		if (highlighted != null) {
-			for (int i = 0; i < highlighted.length; i++) {
-				Highlight highlight = highlighted[i];
-				if (highlight == locationHighlight) {
-					replaceIndex = i;
-					break;
-				}
-			}
+	private void refreshHighlights() {
+		List<Highlight> list = new ArrayList<>(waypointHighlights);
+		if (locationHighlight != null) {
+			list.add(locationHighlight);
 		}
-		locationHighlight = newLocationHighlight;
-		if (replaceIndex != -1) {
-			if (newLocationHighlight != null) {
-				highlighted[replaceIndex] = newLocationHighlight;
-			} else {
-				Highlight[] newHighlighted = new Highlight[highlighted.length - 1];
-				int k = 0;
-				for (int i = 0; i < highlighted.length; i++) {
-					if (i != replaceIndex) {
-						newHighlighted[k++] = highlighted[i];
-					}
-				}
-				highlighted = newHighlighted;
-			}
-		} else if (newLocationHighlight != null) {
-			if (highlighted == null) {
-				highlighted = new Highlight[] {newLocationHighlight};
-			} else {
-				Highlight[] newHighlighted = new Highlight[highlighted.length + 1];
-				newHighlighted[0] = newLocationHighlight;
-				System.arraycopy(highlighted, 0, newHighlighted, 1, highlighted.length);
-				highlighted = newHighlighted;
-			}
+		if (touchHighlight != null) {
+			list.add(touchHighlight);
 		}
-		chart.highlightValues(highlighted);
+		chart.highlightValues(list.isEmpty() ? null : list.toArray(new Highlight[0]));
 	}
 
-	private Highlight createHighlight(float x, boolean location) {
+	private GPXHighlight createGPXHighlight(float x, boolean location) {
 		return new GPXHighlight(x, 0, location);
 	}
 
@@ -655,20 +551,20 @@ public class ElevationProfileWidget extends MapWidget {
 		}
 	}
 
-	private void updateLocationDiffs(float toChartX) {
+	private void updateLocationDiffs(@NonNull GPXHighlight highlight, float toChartX) {
 		List<WptPt> points = allPoints;
-		if (points == null || points.isEmpty() || !(chart.getMarker() instanceof GpxMarkerView)) {
+		if (points == null || points.isEmpty()) {
+			highlight.setUnavailable();
 			return;
 		}
-		GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
 		if (toChartX <= 0) {
-			marker.setLocationDiffs(0, 0);
+			highlight.setDiffs(0, 0);
 			return;
 		}
 		double toDist = toChartX * toMetersMultiplier;
 		int toIndex = gpx.getPointIndexByDistance(points, toDist);
 		if (toIndex < 1) {
-			marker.setLocationDiffs(0, 0);
+			highlight.setDiffs(0, 0);
 			return;
 		}
 		final int count = toIndex + 1;
@@ -688,15 +584,15 @@ public class ElevationProfileWidget extends MapWidget {
 			}
 		};
 		runElevationDiffs(calc);
-		marker.setLocationDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
+		highlight.setDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
 	}
 
-	private void updateSegmentDiffs(float tappedChartX) {
+	private void updateSegmentDiffs(@NonNull GPXHighlight highlight, float tappedChartX) {
 		List<WptPt> points = allPoints;
-		if (points == null || points.isEmpty() || !(chart.getMarker() instanceof GpxMarkerView)) {
+		if (points == null || points.isEmpty()) {
+			highlight.setUnavailable();
 			return;
 		}
-		GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
 
 		CalculationMode mode;
 		try {
@@ -711,7 +607,7 @@ public class ElevationProfileWidget extends MapWidget {
 			case FROM_LOCATION:
 				float pos = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
 				if (pos <= 0) {
-					marker.setSegmentDiffsUnavailable();
+					highlight.setUnavailable();
 					return;
 				}
 				isAhead = tappedChartX >= pos;
@@ -731,10 +627,11 @@ public class ElevationProfileWidget extends MapWidget {
 
 		// For FROM_LOCATION and FROM_LEFT_EDGE, show relative distance; FROM_START uses entry.x.
 		if (mode == CalculationMode.FROM_LOCATION || mode == CalculationMode.FROM_LEFT_EDGE) {
-			marker.setSegmentDistance(Math.abs(toDist - fromDist));
+			highlight.setDistanceM(Math.abs(toDist - fromDist));
 		} else {
-			marker.setSegmentDistance(Double.NaN);
+			highlight.setDistanceM(Double.NaN);
 		}
+		highlight.setIsAhead(isAhead);
 
 		int fromIndex = gpx.getPointIndexByDistance(points, fromDist);
 		int toIndex = gpx.getPointIndexByDistance(points, toDist);
@@ -764,86 +661,33 @@ public class ElevationProfileWidget extends MapWidget {
 			}
 		};
 		runElevationDiffs(calc);
-		marker.setSegmentDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown(), isAhead);
+		highlight.setDiffs(calc.getDiffElevationUp(), calc.getDiffElevationDown());
+	}
+
+	private void setupWaypointHighlights() {
+		waypointHighlights.clear();
+		if (route == null || toMetersMultiplier == 0) {
+			return;
+		}
+		List<Float> distances = route.getIntermediateDistancesFromStart();
+		for (float distM : distances) {
+			float chartX = distM / toMetersMultiplier;
+			waypointHighlights.add(new GPXHighlight(chartX, 0, false, true));
+		}
+		float destChartX = chart.getXChartMax();
+		waypointHighlights.add(new GPXHighlight(destChartX, 0, false, true, true));
+		updateWaypointDiffs();
+	}
+
+	private void updateWaypointDiffs() {
+		for (GPXHighlight h : waypointHighlights) {
+			updateSegmentDiffs(h, h.getX());
+		}
 	}
 
 	private boolean updateWidgets() {
-		double minVisibleX = chart.getLowestVisibleX();
-		double maxVisibleX = chart.getHighestVisibleX();
-
-		CalculationMode mode;
-		try {
-			mode = CalculationMode.valueOf(calculationModePreference.get());
-		} catch (IllegalArgumentException e) {
-			mode = CalculationMode.FROM_LOCATION;
-		}
-
-		String statsPrefix;
-		switch (mode) {
-			case FROM_LOCATION:
-				float gpsPos = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
-				if (gpsPos > 0) {
-					// Clamp GPS position to visible range so stats always cover [gps..rightEdge].
-					minVisibleX = Math.min(Math.max(gpsPos, minVisibleX), maxVisibleX);
-				}
-				statsPrefix = "+";
-				break;
-			case FROM_START:
-				minVisibleX = chart.getXChartMin();
-				statsPrefix = "";
-				break;
-			default: // FROM_LEFT_EDGE — visible left edge, no change to minVisibleX
-				statsPrefix = "|→";
-				break;
-		}
-
 		updateTrackChartPoints();
-		double fromDistance = minVisibleX * toMetersMultiplier;
-		double toDistance = maxVisibleX * toMetersMultiplier;
-		List<WptPt> points = this.allPoints;
-		int firstPointIndex = gpx.getPointIndexByDistance(points, fromDistance);
-		int lastPointIndex = gpx.getPointIndexByDistance(points, toDistance);
-		if (firstVisiblePointIndex == firstPointIndex && lastVisiblePointIndex == lastPointIndex) {
-			return false;
-		}
-		firstVisiblePointIndex = firstPointIndex;
-		lastVisiblePointIndex = lastPointIndex;
-		firstPointIndex = Math.max(0, firstPointIndex - 1);
-		lastPointIndex = Math.min(points.size() - 1, lastPointIndex + 1);
-		if (lastPointIndex > firstPointIndex) {
-			int pointsCount = lastPointIndex - firstPointIndex + 1;
-			final int startIndex = firstPointIndex;
-			ElevationDiffsCalculator elevationDiffsCalc = new ElevationDiffsCalculator() {
-				@Override
-				public double getPointDistance(int index) {
-					return points.get(startIndex + index).getDistance();
-				}
-
-				@Override
-				public double getPointElevation(int index) {
-					return points.get(startIndex + index).getEle();
-				}
-
-				@Override
-				public int getPointsCount() {
-					return pointsCount;
-				}
-			};
-			runElevationDiffs(elevationDiffsCalc);
-			String uphill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationUp(), app);
-			updateTextWidget(uphillView, uphill);
-			String downhill = statsPrefix + OsmAndFormatter.getFormattedAlt(elevationDiffsCalc.getDiffElevationDown(), app);
-			updateTextWidget(downhillView, downhill);
-		}
-		int maxGrade = calculateMaxGrade();
-		String maxGradeStr;
-		if (maxGrade == Integer.MAX_VALUE) {
-			maxGradeStr = "--";
-		} else {
-			maxGradeStr = maxGrade + " %";
-		}
-		updateTextWidget(gradeView, maxGradeStr);
-		return true;
+		return false;
 	}
 
 	private void updateTrackChartPoints() {
@@ -878,53 +722,7 @@ public class ElevationProfileWidget extends MapWidget {
 
 	@Nullable
 	private Highlight getSelectedHighlight() {
-		Highlight[] highlighted = chart.getHighlighted();
-		if (!Algorithms.isEmpty(highlighted)) {
-			for (Highlight highlight : highlighted) {
-				if (highlight instanceof GPXHighlight && !((GPXHighlight) highlight).shouldShowLocationIcon()) {
-					return highlight;
-				}
-			}
-		}
-		return null;
-	}
-
-	private void updateTextWidget(View container, String text) {
-		String[] split = text.split(" ");
-		if (split.length == 2) {
-			((TextView) container.findViewById(R.id.widget_text)).setText(split[0]);
-			((TextView) container.findViewById(R.id.widget_text_small)).setText(split[1]);
-		} else {
-			((TextView) container.findViewById(R.id.widget_text)).setText(text);
-			((TextView) container.findViewById(R.id.widget_text_small)).setText("");
-		}
-	}
-
-	private int calculateMaxGrade() {
-		OrderedLineDataSet slopeDataSet = this.slopeDataSet;
-		if (slopeDataSet == null) {
-			return Integer.MAX_VALUE;
-		}
-		float minVisibleX = chart.getLowestVisibleX();
-		float maxVisibleX = chart.getHighestVisibleX();
-		float highlightPosition = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
-		if (highlightPosition > minVisibleX && highlightPosition < maxVisibleX) {
-			minVisibleX = highlightPosition;
-		}
-		int firstEntryIndex = slopeDataSet.getEntryIndex(minVisibleX, Float.NaN, DataSet.Rounding.CLOSEST);
-		int lastEntryIndex = slopeDataSet.getEntryIndex(maxVisibleX, Float.NaN, DataSet.Rounding.CLOSEST);
-		if (firstEntryIndex == -1 || lastEntryIndex == -1) {
-			return Integer.MAX_VALUE;
-		}
-		float maxValue = 0;
-		for (int i = firstEntryIndex; i <= lastEntryIndex; i++) {
-			Entry e = slopeDataSet.getEntryForIndex(i);
-			float v = e.getY();
-			if (Math.abs(v) > Math.abs(maxValue)) {
-				maxValue = v;
-			}
-		}
-		return (int) (maxValue + 0.5);
+		return touchHighlight;
 	}
 
 	private void setupZoom(LineChart chart) {
