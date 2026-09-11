@@ -7,6 +7,7 @@
 	android:gravity="center">
 
     <LinearLayout
+        android:id="@+id/x_axis_top_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:background="?attr/chart_marker_background"

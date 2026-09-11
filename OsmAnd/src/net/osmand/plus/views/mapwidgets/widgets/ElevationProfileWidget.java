@@ -5,10 +5,12 @@ import static net.osmand.plus.views.mapwidgets.WidgetType.ELEVATION_PROFILE;
 
 import android.content.Context;
 import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
+import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -39,6 +41,7 @@ import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.settings.backend.preferences.CommonPreference;
 import net.osmand.plus.track.helpers.GpxDisplayItem;
 import net.osmand.plus.track.helpers.GpxUiHelper;
+import net.osmand.plus.utils.ColorUtilities;
 import net.osmand.plus.utils.UiUtilities;
 import net.osmand.plus.views.layers.base.OsmandMapLayer.DrawSettings;
 import net.osmand.plus.views.mapwidgets.WidgetsContextMenu;
@@ -53,7 +56,9 @@ import net.osmand.util.Algorithms;
 import net.osmand.util.MapUtils;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ElevationProfileWidget extends MapWidget {
 
@@ -80,6 +85,8 @@ public class ElevationProfileWidget extends MapWidget {
 	private static final int MAX_DISTANCE_TO_SHOW_IM_METERS = 10_000;
 
 	private ElevationChart chart;
+	private ImageView calcModeIcon;
+	private final BubbleLayoutAnimator bubbleAnimator = new BubbleLayoutAnimator();
 
 	private GpxDisplayItem gpxItem;
 	private TrkSegment segment;
@@ -130,6 +137,8 @@ public class ElevationProfileWidget extends MapWidget {
 					ScreenLayoutMode.getDefault(v.getContext()), panel, nightMode, true);
 			return true;
 		});
+		calcModeIcon = view.findViewById(R.id.calc_mode_icon);
+		calcModeIcon.setOnClickListener(v -> cycleCalculationMode());
 	}
 
 	public Boolean shouldShowSlope(@NonNull ApplicationMode appMode) {
@@ -212,6 +221,36 @@ public class ElevationProfileWidget extends MapWidget {
 	public void setCalculationMode(@NonNull ApplicationMode appMode, @NonNull CalculationMode mode) {
 		calculationModePreference.setModeValue(appMode, mode.name());
 		applyMarkerPrefs();
+		updateCalcModeIcon();
+	}
+
+	private void cycleCalculationMode() {
+		ApplicationMode appMode = settings.getApplicationMode();
+		CalculationMode current = getCalculationMode(appMode);
+		CalculationMode next;
+		switch (current) {
+			case FROM_LOCATION: next = CalculationMode.FROM_START; break;
+			case FROM_START:    next = CalculationMode.FROM_LEFT_EDGE; break;
+			default:            next = CalculationMode.FROM_LOCATION; break;
+		}
+		setCalculationMode(appMode, next);
+	}
+
+	private void updateCalcModeIcon() {
+		if (calcModeIcon == null) {
+			return;
+		}
+		ApplicationMode appMode = settings.getApplicationMode();
+		CalculationMode mode = getCalculationMode(appMode);
+		int iconRes;
+		switch (mode) {
+			case FROM_START:     iconRes = R.drawable.ic_action_flag; break;
+			case FROM_LEFT_EDGE: iconRes = R.drawable.ic_action_ruler_line; break;
+			default:             iconRes = R.drawable.ic_action_location_color; break;
+		}
+		int color = ColorUtilities.getDefaultIconColor(calcModeIcon.getContext(), nightMode);
+		Drawable icon = app.getUIUtilities().getPaintedIcon(iconRes, color);
+		calcModeIcon.setImageDrawable(icon);
 	}
 
 	public boolean isElevationSmoothing(@NonNull ApplicationMode appMode) {
@@ -392,6 +431,15 @@ public class ElevationProfileWidget extends MapWidget {
 
 			@Override
 			public void onChartSingleTapped(MotionEvent me) {
+				if (touchHighlight != null && chart.getMarker() instanceof GpxMarkerView) {
+					GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+					if (marker.isTapOnBubble(me.getX(), me.getY(), touchHighlight)) {
+						touchHighlight = null;
+						tappedChartDataX = -1f;
+						refreshHighlights();
+						return;
+					}
+				}
 				Highlight raw = chart.getHighlightByTouchPoint(me.getX(), me.getY());
 				if (raw != null) {
 					GPXHighlight newTouch = createGPXHighlight(raw.getX(), false);
@@ -409,6 +457,7 @@ public class ElevationProfileWidget extends MapWidget {
 			@Override
 			public void onChartScale(MotionEvent me, float scaleX, float scaleY) {
 				app.runInUIThread(() -> updateWidgets());
+				bubbleAnimator.start(getAllHighlights());
 			}
 
 			@Override
@@ -424,6 +473,7 @@ public class ElevationProfileWidget extends MapWidget {
 						refreshHighlights();
 					}
 				}
+				bubbleAnimator.start(getAllHighlights());
 				app.runInUIThread(() -> updateWidgets());
 			}
 		});
@@ -455,6 +505,7 @@ public class ElevationProfileWidget extends MapWidget {
 
 		chart.setHighlightPerTapEnabled(false);
 		chart.setHighlightPerDragEnabled(false);
+		updateCalcModeIcon();
 	}
 
 	@Nullable
@@ -528,15 +579,22 @@ public class ElevationProfileWidget extends MapWidget {
 		return true;
 	}
 
+	private List<GPXHighlight> getAllHighlights() {
+		List<GPXHighlight> list = new ArrayList<>(waypointHighlights);
+		if (locationHighlight != null) list.add(locationHighlight);
+		if (touchHighlight != null) list.add(touchHighlight);
+		return list;
+	}
+
 	private void refreshHighlights() {
-		List<Highlight> list = new ArrayList<>(waypointHighlights);
-		if (locationHighlight != null) {
-			list.add(locationHighlight);
+		List<GPXHighlight> list = getAllHighlights();
+		if (list.isEmpty()) {
+			chart.highlightValues(null);
+			bubbleAnimator.stop();
+		} else {
+			chart.highlightValues(list.toArray(new Highlight[0]));
+			bubbleAnimator.start(list);
 		}
-		if (touchHighlight != null) {
-			list.add(touchHighlight);
-		}
-		chart.highlightValues(list.isEmpty() ? null : list.toArray(new Highlight[0]));
 	}
 
 	private GPXHighlight createGPXHighlight(float x, boolean location) {
@@ -732,6 +790,154 @@ public class ElevationProfileWidget extends MapWidget {
 			float scaleX = maxValue / MAX_DISTANCE_TO_SHOW_IM_METERS;
 			chart.zoom(scaleX, 1.0f, 0, 0);
 			chart.scrollTo(0, 0);
+		}
+	}
+
+	private class BubbleLayoutAnimator implements Runnable {
+		private final Map<GPXHighlight, float[]> offsets = new IdentityHashMap<>();
+		private boolean running = false;
+
+		void start(@NonNull List<GPXHighlight> highlights) {
+			Map<GPXHighlight, float[]> updated = new IdentityHashMap<>();
+			for (GPXHighlight h : highlights) {
+				float[] existing = offsets.get(h);
+				updated.put(h, existing != null ? existing : new float[2]);
+			}
+			offsets.clear();
+			offsets.putAll(updated);
+			if (!running) {
+				running = true;
+				chart.postOnAnimation(this);
+			}
+		}
+
+		void stop() {
+			running = false;
+			offsets.clear();
+		}
+
+		@Override
+		public void run() {
+			if (!running || chart == null || !(chart.getMarker() instanceof GpxMarkerView)) {
+				running = false;
+				return;
+			}
+			GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
+			boolean moved = step(marker);
+			applyToMarker(marker);
+			chart.invalidate();
+			if (moved) {
+				chart.postOnAnimation(this);
+			} else {
+				running = false;
+			}
+		}
+
+		private boolean step(@NonNull GpxMarkerView marker) {
+			List<GPXHighlight> highlights = new ArrayList<>(offsets.keySet());
+			if (highlights.isEmpty()) return false;
+
+			float chartWidth = chart.getWidth();
+			List<RectF> topRects = new ArrayList<>();
+			List<float[]> topSlots = new ArrayList<>();
+			List<RectF> bottomRects = new ArrayList<>();
+			List<float[]> bottomSlots = new ArrayList<>();
+
+			for (GPXHighlight h : highlights) {
+				float[] slot = offsets.get(h);
+				float lineX = h.getDrawX();
+
+				RectF topRect = marker.getBubbleRect(true, lineX, slot[0], h);
+				if (topRect.isEmpty()) return false; // not measured yet, wait one frame
+				topRects.add(topRect);
+				topSlots.add(slot);
+
+				RectF bottomRect = marker.getBubbleRect(false, lineX, slot[1], h);
+				if (!bottomRect.isEmpty()) {
+					bottomRects.add(bottomRect);
+					bottomSlots.add(slot);
+				}
+			}
+
+			boolean moved = false;
+			moved |= processGroup(topRects, topSlots, 0, chartWidth);
+			moved |= processGroup(bottomRects, bottomSlots, 1, chartWidth);
+			return moved;
+		}
+
+		private boolean processGroup(@NonNull List<RectF> rects, @NonNull List<float[]> slots,
+		                             int idx, float chartWidth) {
+			int n = rects.size();
+			if (n == 0) return false;
+
+			// Gather: compute net push for each bubble from pre-move positions
+			float[] netPush = new float[n];
+			for (int i = 0; i < n; i++) {
+				RectF a = rects.get(i);
+				float push = 0;
+				for (int j = 0; j < n; j++) {
+					if (i == j) continue;
+					RectF b = rects.get(j);
+					float overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+					if (overlap > 0) {
+						float aCenter = (a.left + a.right) / 2f;
+						float bCenter = (b.left + b.right) / 2f;
+						push += aCenter <= bCenter ? -overlap : overlap;
+					}
+				}
+				if (a.left < 0) push += -a.left;
+				if (a.right > chartWidth) push -= (a.right - chartWidth);
+				netPush[i] = push;
+			}
+
+			// Apply: move toward resolution, or pull back toward rest; check before pulling back
+			boolean moved = false;
+			for (int i = 0; i < n; i++) {
+				float[] slot = slots.get(i);
+				float dx = slot[idx];
+				float push = netPush[i];
+				if (push > 0) {
+					slot[idx] = dx + 1;
+					moved = true;
+				} else if (push < 0) {
+					slot[idx] = dx - 1;
+					moved = true;
+				} else if (dx != 0) {
+					float tentDx = dx > 0 ? dx - 1 : dx + 1;
+					RectF orig = rects.get(i);
+					float shift = tentDx - dx;
+					RectF tent = new RectF(orig.left + shift, orig.top, orig.right + shift, orig.bottom);
+					if (!overlapsAny(tent, rects, i, chartWidth)) {
+						slot[idx] = tentDx;
+						moved = true;
+					}
+				}
+			}
+			return moved;
+		}
+
+		// Pull-back is blocked when the resulting gap would be smaller than this threshold.
+		// Prevents oscillation caused by fractional lineX positions: a sub-pixel overlap triggers
+		// a 1px push, producing a ~1.6px gap; without a dead zone both bubbles would pull back
+		// simultaneously (against pre-move rects) and restore the overlap, looping forever.
+		private static final float PULL_BACK_HYSTERESIS_PX = 2f;
+
+		private boolean overlapsAny(@NonNull RectF rect, @NonNull List<RectF> rects,
+		                            int skipIdx, float chartWidth) {
+			if (rect.left < 0 || rect.right > chartWidth) return true;
+			for (int i = 0; i < rects.size(); i++) {
+				if (i == skipIdx) continue;
+				float overlap = Math.min(rect.right, rects.get(i).right) - Math.max(rect.left, rects.get(i).left);
+				if (overlap > -PULL_BACK_HYSTERESIS_PX) return true;
+			}
+			return false;
+		}
+
+		private void applyToMarker(@NonNull GpxMarkerView marker) {
+			for (Map.Entry<GPXHighlight, float[]> e : offsets.entrySet()) {
+				float[] offset = e.getValue();
+				marker.setOffset(e.getKey(), offset[0], offset[1]);
+			}
 		}
 	}
 

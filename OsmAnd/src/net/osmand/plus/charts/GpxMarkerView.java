@@ -4,9 +4,12 @@ import static android.text.format.DateUtils.SECOND_IN_MILLIS;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -31,7 +34,9 @@ import net.osmand.plus.utils.FormattedValue;
 import net.osmand.util.MapUtils;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 @SuppressLint("ViewConstructor")
 public class GpxMarkerView extends MarkerView {
@@ -54,8 +59,11 @@ public class GpxMarkerView extends MarkerView {
 	private final View xAxisDivider;
 	private final View segmentDiffsDivider;
 
-	// Bottom distance section
+	// Top and bottom bubble containers (independent horizontal translation for collision avoidance)
+	private final View xAxisTopContainer;
 	private final View xAxisBottomContainer;
+	private final Map<GPXHighlight, float[]> bubbleOffsets = new IdentityHashMap<>();
+	private final Map<GPXHighlight, int[]> bubbleWidths = new IdentityHashMap<>();
 	private final TextView xAxisBottomValue;
 	private final TextView xAxisBottomUnit;
 
@@ -102,6 +110,10 @@ public class GpxMarkerView extends MarkerView {
 		this.useHours = useHours;
 		this.showXAxisValue = showXAxisValue;
 
+		setClipChildren(false);
+		((ViewGroup) getChildAt(0)).setClipChildren(false);
+
+		xAxisTopContainer = findViewById(R.id.x_axis_top_container);
 		bubbleRow0 = findViewById(R.id.bubble_row0);
 		bubbleRow1 = findViewById(R.id.bubble_row1);
 		rowDivider = findViewById(R.id.row_divider);
@@ -154,6 +166,11 @@ public class GpxMarkerView extends MarkerView {
 			chartHeightForBottom = (int) getContext().getResources()
 					.getDimension(R.dimen.elevation_widget_height);
 		}
+		FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) xAxisTopContainer.getLayoutParams();
+		lp.gravity = bottom
+				? (Gravity.CENTER_HORIZONTAL | Gravity.TOP)
+				: (Gravity.TOP | Gravity.START);
+		xAxisTopContainer.setLayoutParams(lp);
 	}
 
 	public void setWaypointIcon(@Nullable Drawable icon) {
@@ -162,6 +179,58 @@ public class GpxMarkerView extends MarkerView {
 
 	public void setDestinationIcon(@Nullable Drawable icon) {
 		destinationIcon = icon;
+	}
+
+	// --- Bubble offset state (collision avoidance) ---
+
+	public void setOffset(@NonNull GPXHighlight highlight, float topDx, float bottomDx) {
+		float[] entry = bubbleOffsets.get(highlight);
+		if (entry == null) {
+			entry = new float[2];
+			bubbleOffsets.put(highlight, entry);
+		}
+		entry[0] = topDx;
+		entry[1] = bottomDx;
+	}
+
+	public void clearOffsets() {
+		bubbleOffsets.clear();
+		bubbleWidths.clear();
+		xAxisTopContainer.setTranslationX(0);
+		xAxisBottomContainer.setTranslationX(0);
+	}
+
+	@NonNull
+	public RectF getBubbleRect(boolean isTop, float lineX, float offsetDx, @Nullable GPXHighlight highlight) {
+		int width = 0;
+		if (highlight != null) {
+			int[] stored = bubbleWidths.get(highlight);
+			if (stored != null) {
+				width = isTop ? stored[0] : stored[1];
+			}
+		}
+		if (width == 0) {
+			if (!isTop && xAxisBottomContainer.getVisibility() != VISIBLE) {
+				return new RectF();
+			}
+			width = (isTop ? xAxisTopContainer : xAxisBottomContainer).getMeasuredWidth();
+		}
+		if (width == 0) {
+			return new RectF();
+		}
+		float left = lineX - width / 2f + offsetDx;
+		float right = left + width;
+		if (isTop) {
+			int contentTop = getContentTopPx();
+			int bubbleHeight = getBubbleHeight();
+			if (bubbleHeight == 0) return new RectF();
+			return new RectF(left, contentTop - bubbleHeight, right, contentTop);
+		} else {
+			int contentBottom = getContentBottomPx();
+			int labelHeight = xAxisBottomContainer.getMeasuredHeight();
+			if (labelHeight == 0) return new RectF();
+			return new RectF(left, contentBottom, right, contentBottom + labelHeight);
+		}
 	}
 
 	// --- refreshContent ---
@@ -246,6 +315,25 @@ public class GpxMarkerView extends MarkerView {
 		} else {
 			arrangeSingleLine(showIcon, dataSetCount, firstDataSet, hasDiffsData);
 		}
+
+		// Cache accurate per-highlight bubble widths for collision detection
+		if (gpxHighlight != null) {
+			int spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+			xAxisTopContainer.measure(spec, spec);
+			xAxisBottomContainer.measure(spec, spec);
+			int[] w = bubbleWidths.get(gpxHighlight);
+			if (w == null) {
+				w = new int[2];
+				bubbleWidths.put(gpxHighlight, w);
+			}
+			w[0] = xAxisTopContainer.getMeasuredWidth();
+			w[1] = xAxisBottomContainer.getMeasuredWidth();
+		}
+
+		// Apply independent horizontal offsets for collision avoidance
+		float[] offsets = gpxHighlight != null ? bubbleOffsets.get(gpxHighlight) : null;
+		xAxisTopContainer.setTranslationX(offsets != null ? offsets[0] : 0f);
+		xAxisBottomContainer.setTranslationX(offsets != null ? offsets[1] : 0f);
 
 		super.refreshContent(entry, highlight);
 	}
@@ -483,15 +571,16 @@ public class GpxMarkerView extends MarkerView {
 
 	@Override
 	public MPPointF getOffsetForDrawingAtPoint(float posX, float posY) {
-		int margin = AndroidUtils.dpToPx(getContext(), 3f);
 		MPPointF offset = getOffset();
-		int bubbleHeight = getBubbleHeight();
-		offset.y = getContentTopPx() - bubbleHeight - posY;
-		if (posX + offset.x - margin < 0) {
-			offset.x -= (offset.x + posX - margin);
-		}
-		if (posX + offset.x + getWidth() + margin > getChartView().getWidth()) {
-			offset.x -= (getWidth() - (getChartView().getWidth() - posX) + offset.x) + margin;
+		offset.y = getContentTopPx() - getBubbleHeight() - posY;
+		if (!distanceAtBottom) {
+			int margin = AndroidUtils.dpToPx(getContext(), 3f);
+			if (posX + offset.x - margin < 0) {
+				offset.x -= (offset.x + posX - margin);
+			}
+			if (posX + offset.x + getWidth() + margin > getChartView().getWidth()) {
+				offset.x -= (getWidth() - (getChartView().getWidth() - posX) + offset.x) + margin;
+			}
 		}
 		return offset;
 	}
@@ -546,6 +635,13 @@ public class GpxMarkerView extends MarkerView {
 			}
 		}
 		return chartHeightForBottom;
+	}
+
+	public boolean isTapOnBubble(float tapX, float tapY, @NonNull GPXHighlight highlight) {
+		float[] offsets = bubbleOffsets.get(highlight);
+		float topDx = offsets != null ? offsets[0] : 0f;
+		RectF rect = getBubbleRect(true, highlight.getDrawX(), topDx, highlight);
+		return !rect.isEmpty() && rect.contains(tapX, tapY);
 	}
 
 	@NonNull
