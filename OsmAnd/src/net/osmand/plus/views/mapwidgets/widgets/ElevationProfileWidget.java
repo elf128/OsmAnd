@@ -73,6 +73,7 @@ public class ElevationProfileWidget extends MapWidget {
 	private static final String TWO_LINE_MARKER_PREF_ID = "two_line_marker";
 	private static final String CALC_MODE_PREF_ID = "calc_mode_marker";
 	private static final String ELEVATION_SMOOTHING_PREF_ID = "elevation_smoothing_widget";
+	private static final String AUTO_SCROLL_PREF_ID = "auto_scroll_chart";
 
 	private final CommonPreference<Boolean> showSlopePreference;
 	private final CommonPreference<Boolean> showElevationInMarkerPreference;
@@ -81,6 +82,7 @@ public class ElevationProfileWidget extends MapWidget {
 	private final CommonPreference<Boolean> twoLineMarkerPreference;
 	private final CommonPreference<String> calculationModePreference;
 	private final CommonPreference<Boolean> elevationSmoothingPreference;
+	private final CommonPreference<Boolean> autoScrollPreference;
 
 	private static final int MAX_DISTANCE_TO_SHOW_IM_METERS = 10_000;
 
@@ -124,6 +126,7 @@ public class ElevationProfileWidget extends MapWidget {
 		this.twoLineMarkerPreference = registerBooleanMarkerPref(TWO_LINE_MARKER_PREF_ID, false, customId);
 		this.calculationModePreference = registerStringMarkerPref(CALC_MODE_PREF_ID, CalculationMode.FROM_LOCATION.name(), customId);
 		this.elevationSmoothingPreference = registerBooleanMarkerPref(ELEVATION_SMOOTHING_PREF_ID, false, customId);
+		this.autoScrollPreference = registerBooleanMarkerPref(AUTO_SCROLL_PREF_ID, true, customId);
 		settings.MAP_LINKED_TO_LOCATION.addListener(linkedToLocationListener);
 	}
 
@@ -138,7 +141,6 @@ public class ElevationProfileWidget extends MapWidget {
 			return true;
 		});
 		calcModeIcon = view.findViewById(R.id.calc_mode_icon);
-		calcModeIcon.setOnClickListener(v -> cycleCalculationMode());
 	}
 
 	public Boolean shouldShowSlope(@NonNull ApplicationMode appMode) {
@@ -260,6 +262,14 @@ public class ElevationProfileWidget extends MapWidget {
 	public void setElevationSmoothing(@NonNull ApplicationMode appMode, boolean smooth) {
 		elevationSmoothingPreference.setModeValue(appMode, smooth);
 		applyMarkerPrefs();
+	}
+
+	public boolean isAutoScroll(@NonNull ApplicationMode appMode) {
+		return autoScrollPreference.getModeValue(appMode);
+	}
+
+	public void setAutoScroll(@NonNull ApplicationMode appMode, boolean autoScroll) {
+		autoScrollPreference.setModeValue(appMode, autoScroll);
 	}
 
 	private void applyMarkerPrefs() {
@@ -403,13 +413,10 @@ public class ElevationProfileWidget extends MapWidget {
 		segment = TrackDetailsMenu.getTrackSegment(chart, gpxItem);
 		chart.setOnChartGestureListener(new OnChartGestureListener() {
 			boolean hasTranslated;
-			float highlightDrawX = -1;
 
 			@Override
 			public void onChartGestureStart(MotionEvent me, ChartGesture lastPerformedGesture) {
 				hasTranslated = false;
-				GPXHighlight touch = touchHighlight;
-				highlightDrawX = touch != null ? touch.getDrawX() : -1;
 			}
 
 			@Override
@@ -431,14 +438,20 @@ public class ElevationProfileWidget extends MapWidget {
 
 			@Override
 			public void onChartSingleTapped(MotionEvent me) {
-				if (touchHighlight != null && chart.getMarker() instanceof GpxMarkerView) {
+				if (chart.getMarker() instanceof GpxMarkerView) {
 					GpxMarkerView marker = (GpxMarkerView) chart.getMarker();
-					if (marker.isTapOnBubble(me.getX(), me.getY(), touchHighlight)) {
-						touchHighlight = null;
-						tappedChartDataX = -1f;
-						refreshHighlights();
-						return;
+					for (GPXHighlight h : getAllHighlights()) {
+						if (marker.isTapOnBubble(me.getX(), me.getY(), h)) {
+							touchHighlight = null;
+							tappedChartDataX = -1f;
+							refreshHighlights();
+							return;
+						}
 					}
+				}
+				if (me.getY() < chart.getViewPortHandler().contentTop()) {
+					cycleCalculationMode();
+					return;
 				}
 				Highlight raw = chart.getHighlightByTouchPoint(me.getX(), me.getY());
 				if (raw != null) {
@@ -463,16 +476,6 @@ public class ElevationProfileWidget extends MapWidget {
 			@Override
 			public void onChartTranslate(MotionEvent me, float dX, float dY) {
 				hasTranslated = true;
-				if (highlightDrawX != -1) {
-					Highlight raw = chart.getHighlightByTouchPoint(highlightDrawX, 0f);
-					if (raw != null) {
-						GPXHighlight newTouch = createGPXHighlight(raw.getX(), false);
-						tappedChartDataX = newTouch.getX();
-						updateSegmentDiffs(newTouch, tappedChartDataX);
-						touchHighlight = newTouch;
-						refreshHighlights();
-					}
-				}
 				bubbleAnimator.start(getAllHighlights());
 				app.runInUIThread(() -> updateWidgets());
 			}
@@ -535,8 +538,9 @@ public class ElevationProfileWidget extends MapWidget {
 		}
 		float distanceFromStart = route.getDistanceFromStart();
 		if (distanceFromStart == 0) {
-			gpxItem.chartHighlightPos = -1f;
+			gpxItem.chartHighlightPos = 0f;
 			locationHighlight = null;
+			updateWaypointDiffs();
 			refreshHighlights();
 			return true;
 		}
@@ -548,7 +552,7 @@ public class ElevationProfileWidget extends MapWidget {
 
 		boolean movedToLocation = this.movedToLocation;
 		if (pos >= minVisibleX && pos <= maxVisibleX || movedToLocation) {
-			if (pos >= startMoveChartPosition) {
+			if (autoScrollPreference.get() && pos >= startMoveChartPosition) {
 				float nextVisibleX = pos - twentyPercent;
 				moveViewToX(chart, nextVisibleX);
 			} else if (movedToLocation) {
@@ -560,6 +564,7 @@ public class ElevationProfileWidget extends MapWidget {
 			gpxItem.chartHighlightPos = pos;
 			GPXHighlight newLocationHighlight = createGPXHighlight(pos, true);
 			updateLocationDiffs(newLocationHighlight, pos);
+			bubbleAnimator.transferOffset(locationHighlight, newLocationHighlight);
 			locationHighlight = newLocationHighlight;
 			updateWaypointDiffs();
 			if (tappedChartDataX >= 0 && touchHighlight != null) {
@@ -664,7 +669,7 @@ public class ElevationProfileWidget extends MapWidget {
 		switch (mode) {
 			case FROM_LOCATION:
 				float pos = gpxItem != null ? gpxItem.chartHighlightPos : -1f;
-				if (pos <= 0) {
+				if (pos < 0) {
 					highlight.setUnavailable();
 					return;
 				}
@@ -811,6 +816,14 @@ public class ElevationProfileWidget extends MapWidget {
 			}
 		}
 
+		void transferOffset(@Nullable GPXHighlight from, @NonNull GPXHighlight to) {
+			if (from == null || from == to) return;
+			float[] existing = offsets.remove(from);
+			if (existing != null) {
+				offsets.put(to, existing);
+			}
+		}
+
 		void stop() {
 			running = false;
 			offsets.clear();
@@ -838,6 +851,8 @@ public class ElevationProfileWidget extends MapWidget {
 			if (highlights.isEmpty()) return false;
 
 			float chartWidth = chart.getWidth();
+			float minVisibleX = chart.getLowestVisibleX();
+			float maxVisibleX = chart.getHighestVisibleX();
 			List<RectF> topRects = new ArrayList<>();
 			List<float[]> topSlots = new ArrayList<>();
 			List<RectF> bottomRects = new ArrayList<>();
@@ -847,8 +862,14 @@ public class ElevationProfileWidget extends MapWidget {
 				float[] slot = offsets.get(h);
 				float lineX = h.getDrawX();
 
+				if (h.getX() < minVisibleX || h.getX() > maxVisibleX) {
+					slot[0] = 0f;
+					slot[1] = 0f;
+					continue;
+				}
+
 				RectF topRect = marker.getBubbleRect(true, lineX, slot[0], h);
-				if (topRect.isEmpty()) return false; // not measured yet, wait one frame
+				if (topRect.isEmpty()) return true; // not measured yet, retry next frame
 				topRects.add(topRect);
 				topSlots.add(slot);
 
@@ -882,7 +903,11 @@ public class ElevationProfileWidget extends MapWidget {
 					if (overlap > 0) {
 						float aCenter = (a.left + a.right) / 2f;
 						float bCenter = (b.left + b.right) / 2f;
-						push += aCenter <= bCenter ? -overlap : overlap;
+						float naturalA = aCenter - slots.get(i)[idx];
+						float naturalB = bCenter - slots.get(j)[idx];
+						if (naturalA < naturalB) push += -overlap;
+						else if (naturalA > naturalB) push += overlap;
+						else push += (i < j) ? -overlap : overlap;
 					}
 				}
 				if (a.left < 0) push += -a.left;

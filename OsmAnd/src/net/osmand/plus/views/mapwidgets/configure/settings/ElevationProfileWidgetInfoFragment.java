@@ -28,6 +28,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 	private static final String KEY_TWO_LINE = "two_line_marker";
 	private static final String KEY_CALC_MODE = "calc_mode";
 	private static final String KEY_SMOOTHING = "elevation_smoothing";
+	private static final String KEY_AUTO_SCROLL = "auto_scroll_chart";
 
 	private ElevationProfileWidget elevationWidget;
 
@@ -38,6 +39,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 	private boolean twoLine;
 	private String calcMode;
 	private boolean smoothing;
+	private boolean autoScroll;
 
 	private ImageView slopeIcon;
 
@@ -59,6 +61,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 			twoLine = bundle.getBoolean(KEY_TWO_LINE, false);
 			calcMode = bundle.getString(KEY_CALC_MODE, CalculationMode.FROM_LOCATION.name());
 			smoothing = bundle.getBoolean(KEY_SMOOTHING, false);
+			autoScroll = bundle.getBoolean(KEY_AUTO_SCROLL, true);
 		} else if (widgetInfo != null) {
 			elevationWidget = (ElevationProfileWidget) widgetInfo.widget;
 			showSlope = elevationWidget.shouldShowSlope(appMode);
@@ -68,6 +71,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 			twoLine = elevationWidget.shouldTwoLineMarker(appMode);
 			calcMode = elevationWidget.getCalculationMode(appMode).name();
 			smoothing = elevationWidget.isElevationSmoothing(appMode);
+			autoScroll = elevationWidget.isAutoScroll(appMode);
 		}
 	}
 
@@ -92,6 +96,9 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 		setupToggle(R.id.elevation_smoothing_row, R.id.elevation_smoothing_icon,
 				R.id.elevation_smoothing_switch, R.drawable.ic_action_filter,
 				() -> smoothing, v -> smoothing = v);
+		setupToggle(R.id.auto_scroll_row, R.id.auto_scroll_icon,
+				R.id.auto_scroll_switch, R.drawable.ic_action_get_my_location,
+				() -> autoScroll, v -> autoScroll = v);
 		setupCalcModeRadios();
 	}
 
@@ -216,6 +223,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 				elevationWidget.setCalculationMode(appMode, CalculationMode.FROM_LOCATION);
 			}
 			elevationWidget.setElevationSmoothing(appMode, smoothing);
+			elevationWidget.setAutoScroll(appMode, autoScroll);
 		}
 	}
 
@@ -229,6 +237,7 @@ public class ElevationProfileWidgetInfoFragment extends WidgetInfoBaseFragment {
 		outState.putBoolean(KEY_TWO_LINE, twoLine);
 		outState.putString(KEY_CALC_MODE, calcMode);
 		outState.putBoolean(KEY_SMOOTHING, smoothing);
+		outState.putBoolean(KEY_AUTO_SCROLL, autoScroll);
 	}
 
 	private interface BooleanSupplier {

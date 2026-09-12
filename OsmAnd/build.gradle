@@ -22,6 +22,12 @@ apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 //        </unzip>
 // Less important
 
+def localProps = new Properties()
+def localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+	localPropsFile.withInputStream { localProps.load(it) }
+}
+
 android {
 	signingConfigs {
 		development {
@@ -32,10 +38,12 @@ android {
 		}
 
 		publishing {
-			storeFile file("/var/lib/jenkins/osmand_key")
-			storePassword System.getenv("OSMAND_APK_PASSWORD")
+			def keystorePath = localProps.getProperty("keystore.path") ?: "/var/lib/jenkins/osmand_key"
+			def keystorePassword = localProps.getProperty("keystore.password") ?: System.getenv("OSMAND_APK_PASSWORD")
+			storeFile file(keystorePath)
+			storePassword keystorePassword
 			keyAlias "osmand"
-			keyPassword System.getenv("OSMAND_APK_PASSWORD")
+			keyPassword keystorePassword
 		}
 	}
 
@@ -79,6 +87,12 @@ android {
 	//	exclude '/META-INF/LICENSE.md'
 	//	exclude '/META-INF/NOTICE.md'
 	//}
+
+	packagingOptions {
+		jniLibs {
+			useLegacyPackaging = true
+		}
+	}
 
 	sourceSets {
 		debug {
@@ -165,6 +179,7 @@ android {
 		}
 		release {
 			signingConfig signingConfigs.publishing
+			debuggable true
 			minifyEnabled true
 			shrinkResources false
 			proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
